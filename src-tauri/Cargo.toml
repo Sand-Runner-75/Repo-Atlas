@@ -1,8 +1,9 @@
 [package]
 name = "repo-atlas"
-version = "0.2.0"
+version = "0.2.1"
 description = "Repo Atlas desktop app"
 edition = "2021"
+license = "AGPL-3.0-only"
 
 [lib]
 name = "repo_atlas_lib"
