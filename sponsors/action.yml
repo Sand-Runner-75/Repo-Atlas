@@ -1,0 +1,64 @@
+name: Repo Atlas sponsor thanks
+description: Posts a thank-you on X for each new public GitHub sponsor.
+branding:
+  icon: heart
+  color: purple
+inputs:
+  user:
+    description: The GitHub account whose sponsors to thank
+    default: ${{ github.repository_owner }}
+  message:
+    description: "The post. {name} is the sponsor's name, {login} their GitHub username, {tier} and {amount} what they chose. A link in the post costs more on X."
+    default: "Thank you {name} for sponsoring my open source work on GitHub! 💜"
+  x-api-key:
+    description: X app API key (consumer key)
+  x-api-secret:
+    description: X app API key secret (consumer secret)
+  x-access-token:
+    description: X access token for the account that posts
+  x-access-token-secret:
+    description: X access token secret for the account that posts
+  state-path:
+    description: File in this repository that remembers who has been thanked
+    default: .github/repo-atlas-sponsors.json
+  thank-existing:
+    description: On the first run, also thank everyone who already sponsors (true or false)
+    default: "false"
+  max-posts:
+    description: Most posts in one run
+    default: "5"
+  dry-run:
+    description: Only print what would be posted (true or false)
+    default: "false"
+  token:
+    description: Token used to read GitHub. The default works for public sponsors.
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: Thank new sponsors
+      shell: bash
+      run: node "${{ github.action_path }}/../action/sponsors.js"
+      env:
+        ATLAS_USER: ${{ inputs.user }}
+        ATLAS_MESSAGE: ${{ inputs.message }}
+        ATLAS_STATE: ${{ inputs.state-path }}
+        ATLAS_THANK_EXISTING: ${{ inputs.thank-existing }}
+        ATLAS_MAX_POSTS: ${{ inputs.max-posts }}
+        ATLAS_DRY_RUN: ${{ inputs.dry-run }}
+        ATLAS_TOKEN: ${{ inputs.token }}
+        X_API_KEY: ${{ inputs.x-api-key }}
+        X_API_SECRET: ${{ inputs.x-api-secret }}
+        X_ACCESS_TOKEN: ${{ inputs.x-access-token }}
+        X_ACCESS_TOKEN_SECRET: ${{ inputs.x-access-token-secret }}
+    - name: Remember who was thanked
+      if: always() && inputs.dry-run != 'true'
+      shell: bash
+      env:
+        ATLAS_STATE: ${{ inputs.state-path }}
+      run: |
+        [ -f "$ATLAS_STATE" ] || exit 0
+        git add -- "$ATLAS_STATE"
+        if git diff --cached --quiet; then exit 0; fi
+        git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Remember thanked sponsors"
+        git push

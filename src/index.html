@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repo Atlas</title>
+<meta name="description" content="See any GitHub account as a map: languages, activity, a git-flow branch graph, and a picture to share. Free, in your browser or on Windows.">
+<meta property="og:title" content="Repo Atlas: map any GitHub account">
+<meta property="og:description" content="Languages, activity, branch graphs and a shareable profile picture for any GitHub user or organization.">
+<meta property="og:image" content="https://sand-runner-75.github.io/repo-atlas/social.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- Workbench: activity bar | resizable sidebar | editor (tabs + views), status bar along the bottom -->
+<div id="app">
+  <div id="workbench">
+    <nav class="activity" aria-label="Views">
+      <button type="button" class="act" data-view="repos" title="Repositories (Ctrl+Shift+E)" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5v-15Z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"/><path d="M9 7h6"/></svg></button>
+      <button type="button" class="act" data-view="accounts" title="Accounts (Ctrl+Shift+A)" aria-pressed="false"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4M18 14.8c1.8.7 3 2.4 3.5 5.2"/></svg></button>
+      <button type="button" class="act" data-cmd="inbox" id="actInbox" title="Inbox: notifications, pull requests, issues (Ctrl+Shift+M)"><svg viewBox="0 0 24 24"><path d="M3.5 13.5 6 5h12l2.5 8.5V19a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-5.5Z"/><path d="M3.5 13.5H8.5l1.5 2.5h4l1.5-2.5h5"/></svg><span class="badge" id="inboxBadge" hidden></span></button>
+      <button type="button" class="act" data-view="following" id="actFollow" title="Following and invitations (Ctrl+Shift+U)" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2H4.5l1.5-2Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="badge" id="followBadge" hidden></span></button>
+      <button type="button" class="act" data-cmd="palette" title="Command Palette (Ctrl+Shift+P)"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5.5 5.5"/></svg></button>
+      <span class="grow"></span>
+      <button type="button" class="act" data-cmd="help" title="Help (F1)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><path d="M12 17.2v.1"/></svg></button>
+      <button type="button" class="act" id="gear" data-cmd="settings" title="Settings (Ctrl+,)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg></button>
+    </nav>
+
+    <aside class="sidebar" id="sidebar">
+      <section class="sview" id="view-repos">
+        <header class="shead"><span>Repositories</span>
+          <span class="tools">
+            <button type="button" class="ib" data-cmd="load" title="Load account (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button type="button" class="ib" data-cmd="refresh" title="Refresh (F5)"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+            <button type="button" class="ib" data-cmd="collapse" title="Collapse all"><svg viewBox="0 0 24 24"><path d="M7 14l5-5 5 5"/></svg></button>
+          </span>
+        </header>
+        <button type="button" class="account" id="account" data-cmd="load" title="Switch account (Ctrl+O)"></button>
+        <button type="button" class="btn addtok" id="addToken" data-cmd="token" hidden></button>
+        <div class="filters">
+          <label class="input"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg><input id="q" placeholder="Filter (Ctrl+Shift+F)" aria-label="Filter repositories" spellcheck="false"></label>
+          <div class="frow">
+            <select id="fType" aria-label="Filter by type">
+              <option value="all">All types</option><option value="source">Original</option><option value="fork">Forks</option>
+              <option value="archived">Archived</option><option value="private">Private</option><option value="public">Public</option><option value="shared">Shared with you</option>
+            </select>
+            <select id="fLang" aria-label="Filter by language"></select>
+            <select id="fSort" aria-label="Sort by">
+              <option value="pushed_at">Recent</option><option value="stargazers_count">Stars</option>
+              <option value="forks_count">Forks</option><option value="created_at">Newest</option>
+              <option value="size">Size</option><option value="name">Name</option>
+            </select>
+          </div>
+          <div class="fnote" id="count"></div>
+        </div>
+        <div class="tree" id="tree" role="tree" aria-label="Repositories"></div>
+      </section>
+
+      <section class="sview" id="view-accounts" hidden>
+        <header class="shead"><span>Accounts</span>
+          <span class="tools"><button type="button" class="ib" data-cmd="load" title="Load account (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button></span>
+        </header>
+        <div class="slist" id="recent"></div>
+        <div class="shint">Type any GitHub username, organization or <span class="mono">owner/repo</span> with <kbd>Ctrl</kbd>+<kbd>O</kbd>.</div>
+      </section>
+
+      <section class="sview" id="view-following" hidden>
+        <header class="shead"><span>Following</span>
+          <span class="tools">
+            <button type="button" class="ib" data-cmd="followAsk" title="Follow a repository…"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+            <button type="button" class="ib" data-cmd="checkNow" title="Check for updates now"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+            <button type="button" class="ib" data-cmd="markRead" title="Mark all updates as read"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></button>
+          </span>
+        </header>
+        <div class="tree" id="followList"></div>
+      </section>
+    </aside>
+    <div class="sash" id="sash" title="Drag to resize"></div>
+
+    <main class="editor">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="progress" id="progress" hidden></div>
+      <div class="views">
+        <!-- Overview -->
+        <section class="view" id="v-overview">
+          <div class="page">
+            <div id="notice" class="notice" hidden></div>
+            <section class="profile" id="profile"></section>
+            <section class="kpis" id="kpis" aria-label="Summary"></section>
+            <div class="grid">
+              <section class="panel c7">
+                <div class="ph"><h2>Contribution activity</h2><span class="sub" id="heatSub"></span></div>
+                <div class="chart scroll-x" id="heat"></div>
+                <div class="legend" id="heatLegend"></div>
+              </section>
+              <section class="panel c5">
+                <div class="ph"><h2>Languages</h2>
+                  <div class="seg" role="group" aria-label="Measure languages by">
+                    <button type="button" id="langCount" aria-pressed="true">Repos</button>
+                    <button type="button" id="langBytes" aria-pressed="false">Code size</button>
+                  </div>
+                </div>
+                <div id="langs"></div>
+                <div class="ph"><span class="sub" id="langNote"></span></div>
+              </section>
+              <section class="panel c6">
+                <div class="ph"><h2>Top repositories</h2>
+                  <div class="seg" role="group" aria-label="Rank by" id="rankSeg">
+                    <button type="button" data-m="stargazers_count" aria-pressed="true">Stars</button>
+                    <button type="button" data-m="forks_count" aria-pressed="false">Forks</button>
+                    <button type="button" data-m="open_issues_count" aria-pressed="false">Issues</button>
+                    <button type="button" data-m="size" aria-pressed="false">Size</button>
+                  </div>
+                </div>
+                <div class="bars" id="rank"></div>
+              </section>
+              <section class="panel c6">
+                <div class="ph"><h2>Repositories created per year</h2><span class="sub">Original work and forks</span></div>
+                <div class="chart" id="years"></div>
+                <div class="legend"><span><i class="dot" style="background:var(--accent)"></i>Original</span><span><i class="dot" style="background:var(--muted);opacity:.5"></i>Fork</span></div>
+              </section>
+              <section class="panel c12">
+                <div class="ph"><h2>Project lifespans</h2><span class="sub">Created to last push, colored by language</span></div>
+                <div class="chart scroll-y" id="life"></div>
+              </section>
+              <section class="panel c8">
+                <div class="ph"><h2>Stars against recency</h2><span class="sub">Circle size is repository size · click to open</span></div>
+                <div class="chart" id="scatter"></div>
+              </section>
+              <section class="panel c4">
+                <div class="ph"><h2>Composition</h2></div>
+                <div class="sublabel">Repository types</div>
+                <div id="types"></div>
+                <div class="sublabel">Licenses</div>
+                <div class="bars" id="licenses"></div>
+                <div class="sublabel">Default branch</div>
+                <div class="legend" id="branches"></div>
+              </section>
+              <section class="panel c6">
+                <div class="ph"><h2>Topics</h2><span class="sub">Click a topic to filter the sidebar</span></div>
+                <div class="chips" id="topics"></div>
+              </section>
+              <section class="panel c6">
+                <div class="ph"><h2>Recent public events</h2><span class="sub" id="feedSub"></span></div>
+                <div class="bars" id="evmix"></div>
+                <ul class="feed" id="feed"></ul>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <!-- One repository at a time; tabs remember which -->
+        <section class="view" id="v-repo" hidden><div class="page" id="repoPage"></div></section>
+
+        <!-- Two accounts side by side -->
+        <section class="view" id="v-compare" hidden><div class="page" id="comparePage"></div></section>
+
+        <!-- Inbox: GitHub notifications, pull requests, issues, gists, stars -->
+        <section class="view" id="v-inbox" hidden><div class="page" id="inboxPage"></div></section>
+
+        <!-- Settings -->
+        <section class="view" id="v-settings" hidden>
+          <div class="page narrow">
+            <h1 class="vtitle">Settings</h1>
+            <div class="setting" id="tokenSetting">
+              <div class="sl"><b>GitHub token</b><p>Optional. Adds your private repositories, the full-year contribution calendar and raises GitHub's limit from 60 to 5,000 requests an hour. Create one at <a href="https://github.com/settings/tokens?type=beta">github.com/settings/tokens</a> with read-only access to Metadata and Contents.</p>
+                <p>To run and re-run Actions from the app, also give it <b>Actions: Read and write</b>. Invitations, GitHub notifications and gists only work with a classic token. A <a href="https://github.com/settings/tokens/new?scopes=repo,workflow,read:org,notifications,gist&amp;description=Repo%20Atlas">classic token</a> with the <span class="mono">repo</span>, <span class="mono">workflow</span>, <span class="mono">read:org</span>, <span class="mono">notifications</span> and <span class="mono">gist</span> scopes covers everything in the app.</p></div>
+              <div class="sc">
+                <div id="tokenState" class="tstate"></div>
+                <form id="tokenForm" class="trow" autocomplete="off">
+                  <label class="input wide"><input id="token" type="password" placeholder="github_pat_… or ghp_…" aria-label="GitHub personal access token" spellcheck="false"></label>
+                  <button class="btn primary" type="submit">Save token</button>
+                  <button class="btn" type="button" id="tokenClear">Remove</button>
+                </form>
+                <p class="fine" id="tokenWhere"></p>
+              </div>
+            </div>
+            <div class="setting" id="notifySetting">
+              <div class="sl"><b>Notifications</b><p>Repo Atlas checks the repositories you follow, and your invitations, and tells you when something new shows up.</p></div>
+              <div class="sc">
+                <label class="sline">Check every <select id="everySel" aria-label="How often to check"><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">hour</option></select></label>
+                <label class="sline"><input type="checkbox" id="notifyOn"> Show a Windows notification</label>
+                <label class="sline"><input type="checkbox" id="ghOn"> Include my GitHub notifications and review requests</label>
+                <label class="sline desk"><input type="checkbox" id="trayOn"> Keep checking in the tray when I close the window</label>
+                <label class="sline desk"><input type="checkbox" id="autoOn"> Start Repo Atlas when I sign in to Windows</label>
+                <div class="trow"><button type="button" class="btn" data-cmd="testNotify">Send a test notification</button></div>
+                <p class="fine" id="notifyNote"></p>
+              </div>
+            </div>
+            <div class="setting">
+              <div class="sl"><b>Color theme</b><p>Dark by default, like most editors.</p></div>
+              <div class="sc"><select id="themeSel" aria-label="Color theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">Follow Windows</option></select></div>
+            </div>
+            <div class="setting">
+              <div class="sl"><b>Start up with</b><p>Which account to show when the app opens.</p></div>
+              <div class="sc"><select id="startSel" aria-label="Start up with"><option value="last">The last account I loaded</option><option value="me">My own account (needs a token)</option><option value="sample">Sample data</option></select></div>
+            </div>
+            <p class="fine">Keyboard shortcuts are listed on the <button type="button" class="link" data-cmd="help">Help page</button> (F1).</p>
+          </div>
+        </section>
+
+        <!-- Help -->
+        <section class="view" id="v-help" hidden>
+          <div class="page narrow">
+            <h1 class="vtitle">Help</h1>
+            <h2 class="vsub">Getting started</h2>
+            <ol class="howto">
+              <li><b>Add your GitHub token (optional).</b> Click the gear at the bottom left of the window, or press <kbd>Ctrl</kbd><kbd>,</kbd>, to open Settings. The token box is at the top. A token adds your private repositories and lets you make many more requests.
+                <span class="hacts"><button type="button" class="btn" data-cmd="tokenbox">Show me the token box</button></span></li>
+              <li><b>Load an account or a repository.</b> Press <kbd>Ctrl</kbd><kbd>O</kbd>, or click the account name at the top of the sidebar, then type a GitHub username, an organization or <span class="mono">owner/repo</span> and press Enter.
+                <span class="hacts"><button type="button" class="btn" data-cmd="load">Load an account</button></span></li>
+              <li><b>Open a repository.</b> Click one in the sidebar to preview it, or double-click to keep its tab open. <kbd>Ctrl</kbd><kbd>P</kbd> finds one by name.</li>
+              <li><b>Follow repositories.</b> Open a repository and click <b>Follow</b>, or use the bell on the left. Repo Atlas tells you about new releases, and if you like new commits, issues and failed Actions runs. Pending invitations show up there too, ready to accept.</li>
+              <li><b>Your inbox.</b> The inbox icon on the left (<kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>M</kbd>) has your GitHub notifications, your pull requests and the ones waiting for your review, issues assigned to you, your gists and your stars.</li>
+              <li><b>Run Actions.</b> Every repository tab lists its latest Actions runs. Re-run or cancel one, or start a workflow with <b>Run workflow</b>.</li>
+              <li><b>Find any command.</b> <kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>P</kbd> lists everything the app can do.</li>
+            </ol>
+            <p><button type="button" class="btn" data-cmd="welcome">Show the welcome screen again</button></p>
+            <h2 class="vsub">Keyboard shortcuts</h2>
+            <table class="keys" id="keys"></table>
+            <h2 class="vsub" id="about">About Repo Atlas</h2>
+            <div class="about">
+              <img src="icon.png" alt="" width="48" height="48">
+              <div>
+                <b>Repo Atlas</b> <span class="mono" id="aboutVer">version –</span>
+                <p>Maps the repositories of any GitHub user or organization: languages, activity, branches and more.</p>
+                <table class="keys facts" id="aboutFacts"></table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <footer class="status" id="status">
+    <button type="button" class="si accent" data-cmd="load" id="sAccount" title="Switch account (Ctrl+O)"></button>
+    <span class="si" id="sRepos"></span>
+    <span class="si" id="sBusy" hidden></span>
+    <span class="grow"></span>
+    <button type="button" class="si" data-cmd="settings" id="sToken" title="Token settings"></button>
+    <span class="si" id="rate" title="GitHub API requests left this hour">API –</span>
+    <button type="button" class="si" data-cmd="theme" id="sTheme" title="Toggle theme"></button>
+    <button type="button" class="si" data-cmd="palette" title="Command Palette">Ctrl+Shift+P</button>
+  </footer>
+</div>
+
+<div class="qi-scrim" id="qiScrim" hidden></div>
+<div class="qi" id="qi" hidden role="dialog" aria-label="Command palette">
+  <label class="input"><input id="qiInput" spellcheck="false" autocomplete="off" aria-label="Command"></label>
+  <div class="qi-msg" id="qiMsg"></div>
+  <ul class="qi-list" id="qiList" role="listbox"></ul>
+</div>
+<div class="wl-scrim" id="wlScrim" hidden></div>
+<div class="wl" id="welcome" hidden role="dialog" aria-modal="true" aria-labelledby="wlTitle">
+  <button type="button" class="ib wl-x" data-wl="close" title="Close (Esc)" aria-label="Close"></button>
+  <div class="wl-dots" id="wlDots" aria-hidden="true"></div>
+  <div id="wlBody"></div>
+</div>
+<div class="modal-scrim" id="modalScrim" hidden></div>
+<div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modalTitle"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="tip" hidden></div>
+<script src="app.js"></script>
+<script src="badge.js"></script>
+<script src="gif.js"></script>
+<script src="share.js"></script>
+<script src="compare.js"></script>
+<script src="follow.js"></script>
+<script src="actions.js"></script>
+<script src="inbox.js"></script>
+<script src="repotools.js"></script>
+<script src="thanks.js"></script>
+<script src="sponsors.js"></script>
+</body>
+</html>

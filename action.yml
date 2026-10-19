@@ -1,0 +1,42 @@
+name: Repo Atlas badge
+description: Draws a Repo Atlas stats card (stars, repos, activity, languages) for a GitHub profile README and keeps it up to date.
+branding:
+  icon: map
+  color: blue
+inputs:
+  user:
+    description: GitHub username or organization to draw
+    default: ${{ github.repository_owner }}
+  path:
+    description: Where to write the SVG in your repository
+    default: repo-atlas.svg
+  theme:
+    description: dark or light
+    default: dark
+  token:
+    description: Token used to read GitHub. The default works for public data.
+    default: ${{ github.token }}
+  commit:
+    description: Commit and push the SVG when it changes (true or false)
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Draw the badge
+      shell: bash
+      run: node "${{ github.action_path }}/action/badge.js"
+      env:
+        ATLAS_USER: ${{ inputs.user }}
+        ATLAS_PATH: ${{ inputs.path }}
+        ATLAS_THEME: ${{ inputs.theme }}
+        ATLAS_TOKEN: ${{ inputs.token }}
+    - name: Commit the badge
+      if: inputs.commit == 'true'
+      shell: bash
+      env:
+        ATLAS_PATH: ${{ inputs.path }}
+      run: |
+        git add -- "$ATLAS_PATH"
+        if git diff --cached --quiet; then echo "Badge unchanged"; exit 0; fi
+        git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Update Repo Atlas badge"
+        git push
