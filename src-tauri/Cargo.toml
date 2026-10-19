@@ -3,6 +3,7 @@ name = "repo-atlas"
 version = "0.2.0"
 description = "Repo Atlas desktop app"
 edition = "2021"
+license = "AGPL-3.0-only"
 
 [lib]
 name = "repo_atlas_lib"

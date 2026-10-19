@@ -1252,6 +1252,7 @@ async function renderAbout() {
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
   $("aboutFacts").innerHTML = row("Version", esc(ver))
     + row("Source code", `<a href="https://github.com/Sand-Runner-75/repo-atlas">github.com/Sand-Runner-75/repo-atlas</a>`)
+    + row("License", `<a href="https://github.com/Sand-Runner-75/repo-atlas/blob/main/LICENSE">GNU AGPL-3.0</a>`)
     + row("Report a problem", `<a href="https://github.com/Sand-Runner-75/repo-atlas/issues">Open an issue on GitHub</a>`)
     + row("Your token is kept in", esc(secrets.where))
     + (tauri ? row("Built with", `Tauri ${esc(tauri)}`) : "");

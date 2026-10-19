@@ -123,4 +123,10 @@ Bump `version` in `package.json` and `src-tauri/tauri.conf.json`, then push a ta
 
 ## License
 
-[MIT](LICENSE)
+Copyright (c) 2026 Sand Runner
+
+Repo Atlas is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). You can use, change and share it freely, but if you share a changed version, or run one as a service for others, you must publish your source code under the same license.
+
+Companies that want to use Repo Atlas under different terms can contact Sand Runner through [GitHub](https://github.com/Sand-Runner-75).
+
+Versions up to and including v0.2.0 were released under the MIT License.
