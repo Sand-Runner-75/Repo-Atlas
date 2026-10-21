@@ -14,7 +14,9 @@ const ago = (d) => {
   if (s < 86400 * 365) return Math.round(s / 86400 / 30) + "mo ago";
   return (s / 86400 / 365).toFixed(1).replace(/\.0$/, "") + "y ago";
 };
-const dateStr = (d) => new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+// One shared formatter: making a new one per date is slow when the branch graph labels thousands of commits
+const dateFmt = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" });
+const dateStr = (d) => { const t = new Date(d); return isNaN(t) ? "Invalid Date" : dateFmt.format(t); };
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
@@ -885,7 +887,7 @@ function graphComplete(g) {
 }
 // Fetch pages until there are enough gap-free commits to show, or the whole history is in
 async function graphFill(g) {
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 100; i++) {
     const { open, all, done } = graphComplete(g);
     if (done.length >= g.show || !open.length) return;
     const edge = all[g.show - 1] ? new Date(all[g.show - 1].date) : -Infinity;
@@ -910,7 +912,8 @@ function drawGraph(g, keep) {
 async function loadOlderCommits() {
   const g = G;
   if (!g || g.busy || repoFor !== g.full || !g.heads) return;
-  g.busy = true; g.err = false; g.show += GMORE;
+  // Steps grow with the history already shown, so reaching the start of a very long one takes a handful of loads
+  g.busy = true; g.err = false; g.show += Math.min(2000, Math.max(GMORE, Math.round(g.show / 2)));
   const b = $("graphOlder"); if (b) { b.disabled = true; b.textContent = "Loading older commits…"; }
   try { await graphFill(g); } finally { g.busy = false; }
   if (g.err) toast("error", "Couldn't load older commits. Check your connection or GitHub rate limit, then press Load older commits.");
@@ -938,9 +941,11 @@ function fillGraph(def, all, heads, tags, totalBranches, opt = {}) {
   if (!win.size) { box.innerHTML = `<div class="empty">No commits to draw.</div>`; $("dGraphSum").innerHTML = $("dGraphKey").innerHTML = ""; return; }
   // Oldest first, but never before a parent (commit dates can be out of order)
   const order = [], placed = new Set(), left = [...win.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
-  while (left.length) {
-    const i = Math.max(0, left.findIndex((c) => c.parents.every((p) => !win.has(p) || placed.has(p))));
-    const [c] = left.splice(i, 1); c.x = order.length; order.push(c); placed.add(c.sha);
+  const ready = (c) => c.parents.every((p) => !win.has(p) || placed.has(p));
+  for (let first = 0; order.length < left.length;) {
+    while (placed.has(left[first].sha)) first++;
+    let i = first; while (i < left.length && (placed.has(left[i].sha) || !ready(left[i]))) i++;
+    const c = left[i < left.length ? i : first]; c.x = order.length; order.push(c); placed.add(c.sha);
   }
   // Each branch claims its first-parent chain, most important branches first
   const lanes = [], laneOf = new Map();
