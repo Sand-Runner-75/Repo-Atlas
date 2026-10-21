@@ -843,7 +843,7 @@ async function loadBranches(r, full) {
     if (repoFor === full) box().innerHTML = $("dGraph").innerHTML = `<div class="empty">Couldn't load branches. ${esc(explain(e).replace(/<[^>]+>/g, ""))}</div>`;
   }
 }
-/* Git-flow graph: one lane per branch, colored by the kind of branch, with merges and tags */
+/* Git-flow graph: one lane per branch, colored by the kind of branch (lines, dots and labels alike), with merges and tags */
 const FLOW = [
   { k: "main", c: "#e5534b", t: (n, def) => n === def || /^(main|master|trunk)$/i.test(n) },
   { k: "hotfix", c: "#26a865", t: (n) => /^(hotfix|bugfix|fix)[/-]/i.test(n) },
@@ -936,9 +936,10 @@ function fillGraph(def, all, heads, tags, totalBranches) {
     const xb = merge ? x2 - COL / 2 : x1 + COL / 2, s = y2 > y1 ? 1 : -1, r = Math.min(10, Math.abs(y2 - y1) / 2);
     return `M${x1} ${y1}H${xb - r}Q${xb} ${y1} ${xb} ${y1 + s * r}V${y2 - s * r}Q${xb} ${y2} ${xb + r} ${y2}H${x2}`;
   };
-  // data-s is the step each piece appears at, so the history replay can reveal the graph commit by commit
-  const edges = order.flatMap((c) => c.parents.map((p, i) => win.has(p) ? `<path data-s="${c.x}" d="${path(win.get(p), c, i > 0)}"/>`
-    : i === 0 ? `<path data-s="${c.x}" d="M${X(c) - COL * 0.7} ${Y(c)}H${X(c)}" stroke-dasharray="3 4"/>` : "")).join("");
+  // data-s is the step each piece appears at, so the history replay can reveal the graph commit by commit.
+  // Each line takes its branch's color: a merge line the merged branch's, any other line the child's.
+  const edges = order.flatMap((c) => c.parents.map((p, i) => win.has(p) ? `<path data-s="${c.x}" d="${path(win.get(p), c, i > 0)}" stroke="${laneOf.get(i > 0 ? p : c.sha).flow.c}"/>`
+    : i === 0 ? `<path data-s="${c.x}" d="M${X(c) - COL * 0.7} ${Y(c)}H${X(c)}" stroke="${laneOf.get(c.sha).flow.c}" stroke-dasharray="3 4"/>` : "")).join("");
   const at = (list) => { const m = new Map(); for (const t of list) if (win.has(t.sha)) m.set(t.sha, [...(m.get(t.sha) || []), t.name]); return m; };
   const tagsAt = at(tags), headsAt = at(heads);
   const flag = (x, y, names, color, above, s) => {
@@ -964,7 +965,7 @@ function fillGraph(def, all, heads, tags, totalBranches) {
   const kinds = FLOW.filter((f) => lanes.some((l) => l.flow === f));
   $("dGraphKey").innerHTML = kinds.map((f) => `<span><i class="dot" style="background:${f.c}"></i>${f.k}</span>`).join("") + (W > box.clientWidth ? `<span>Scroll sideways for older commits</span>` : "");
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Branch graph of the last ${order.length} commits">${guides}
-    <g fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" opacity=".7">${edges}</g>${nodes}${flags}</svg>`;
+    <g fill="none" stroke-width="2.5" stroke-linecap="round" opacity=".85">${edges}</g>${nodes}${flags}</svg>`;
   box.scrollLeft = box.scrollWidth;
   box.steps = order.map((c) => ({ date: c.date, msg: c.msg, x: X(c) }));
 }
