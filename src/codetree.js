@@ -298,8 +298,11 @@ function mount(r) {
   cv.addEventListener("wheel", (e) => { e.preventDefault(); V.cam.s = Math.max(0.05, Math.min(8, V.cam.s * Math.exp(-e.deltaY * 0.0015))); V.free = true; paint(); }, { passive: false });
   $("ctTime").addEventListener("input", (e) => seek(+e.target.value));
   new ResizeObserver(() => paint()).observe(cv);
+  // Nothing runs while the tree can't be seen: scrolled away, another tab, or the window minimized
+  new IntersectionObserver(([e]) => { if (!e.isIntersecting && V.playing) toggle(false); }).observe(cv);
   paint();
 }
+document.addEventListener("visibilitychange", () => { if (document.hidden && V.playing) toggle(false); });
 async function start() {
   if (V.data) return toggle();
   const r = RA.curRepo(); if (!r) return;
