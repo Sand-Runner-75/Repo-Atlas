@@ -853,6 +853,8 @@ const FLOW = [
   { k: "other", c: "#7d8b92", t: () => true },
 ];
 const flowOf = (name, def) => FLOW.find((f) => f.t(name, def));
+// Branches that fit no git-flow kind each get their own color, so they can be told apart
+const OTHER = ["#17a2a2", "#d4508e", "#b39a1b", "#45a6d6", "#e07a5f", "#86b32a", "#a0785a", "#7d8b92"];
 // Which branch claims a commit first: main, then develop, then the short-lived kinds
 const RANK = ["main", "develop", "release", "hotfix", "feature", "other"];
 const rankOf = (name, def) => RANK.indexOf(flowOf(name, def).k);
@@ -926,6 +928,9 @@ function fillGraph(def, all, heads, tags, totalBranches) {
     if (!row) rows.push(row = { flow: l.flow });
     row.hi = l.hi; l.row = rows.indexOf(row);
   }
+  let nOther = 0;
+  for (const l of lanes) l.c = l.flow.k === "other" ? OTHER[nOther++ % OTHER.length] : l.flow.c;
+  const laneNamed = new Map(lanes.map((l) => [l.name, l]));
   const COL = 34, ROW = 62, PADL = 46, TOP = 40, R = 8;
   const W = PADL * 2 + (order.length - 1) * COL, H = TOP + (rows.length - 1) * ROW + 46;
   const X = (c) => PADL + c.x * COL, Y = (c) => TOP + laneOf.get(c.sha).row * ROW;
@@ -938,8 +943,8 @@ function fillGraph(def, all, heads, tags, totalBranches) {
   };
   // data-s is the step each piece appears at, so the history replay can reveal the graph commit by commit.
   // Each line takes its branch's color: a merge line the merged branch's, any other line the child's.
-  const edges = order.flatMap((c) => c.parents.map((p, i) => win.has(p) ? `<path data-s="${c.x}" d="${path(win.get(p), c, i > 0)}" stroke="${laneOf.get(i > 0 ? p : c.sha).flow.c}"/>`
-    : i === 0 ? `<path data-s="${c.x}" d="M${X(c) - COL * 0.7} ${Y(c)}H${X(c)}" stroke="${laneOf.get(c.sha).flow.c}" stroke-dasharray="3 4"/>` : "")).join("");
+  const edges = order.flatMap((c) => c.parents.map((p, i) => win.has(p) ? `<path data-s="${c.x}" d="${path(win.get(p), c, i > 0)}" stroke="${laneOf.get(i > 0 ? p : c.sha).c}"/>`
+    : i === 0 ? `<path data-s="${c.x}" d="M${X(c) - COL * 0.7} ${Y(c)}H${X(c)}" stroke="${laneOf.get(c.sha).c}" stroke-dasharray="3 4"/>` : "")).join("");
   const at = (list) => { const m = new Map(); for (const t of list) if (win.has(t.sha)) m.set(t.sha, [...(m.get(t.sha) || []), t.name]); return m; };
   const tagsAt = at(tags), headsAt = at(heads);
   const flag = (x, y, names, color, above, s) => {
@@ -952,18 +957,19 @@ function fillGraph(def, all, heads, tags, totalBranches) {
   const nodes = order.map((c) => {
     const l = laneOf.get(c.sha), x = X(c), y = Y(c);
     const tip = `${c.msg}\n${c.sha.slice(0, 7)} on ${l.name}${l.gone ? " (deleted)" : ""}\n${c.author ? c.author + " · " : ""}${dateStr(c.date)}`;
-    const dot = `<g class="gn" data-s="${c.x}" data-tip="${esc(tip)}"><circle cx="${x}" cy="${y}" r="${R}" fill="${l.flow.c}"/></g>`;
+    const dot = `<g class="gn" data-s="${c.x}" data-tip="${esc(tip)}"><circle cx="${x}" cy="${y}" r="${R}" fill="${l.c}"/></g>`;
     return c.url ? `<a href="${esc(c.url)}">${dot}</a>` : dot;
   }).join("");
   const flags = order.map((c) => {
     const x = X(c), y = Y(c), t = tagsAt.get(c.sha), h = headsAt.get(c.sha);
-    return (t ? flag(x, y, t, laneOf.get(c.sha).flow.c, true, c.x) : "") + (h ? flag(x, y, h, flowOf(h[0], def).c, false, c.x) : "");
+    return (t ? flag(x, y, t, laneOf.get(c.sha).c, true, c.x) : "") + (h ? flag(x, y, h, (laneNamed.get(h[0]) || laneOf.get(c.sha)).c, false, c.x) : "");
   }).join("");
   const guides = rows.map((_, i) => `<line x1="0" x2="${W}" y1="${TOP + i * ROW}" y2="${TOP + i * ROW}" stroke="var(--line-strong)" stroke-dasharray="3 6"/>`).join("");
   const nTags = [...tagsAt.values()].reduce((a, t) => a + t.length, 0);
   $("dGraphSum").innerHTML = `<span><b>${order.length}</b> recent commits</span><span><b>${lanes.length}</b> line${lanes.length === 1 ? "" : "s"} of work</span><span><b>${nTags}</b> tag${nTags === 1 ? "" : "s"}</span>${totalBranches > heads.length ? `<span>Drawing ${heads.length} of ${totalBranches} branches</span>` : ""}`;
   const kinds = FLOW.filter((f) => lanes.some((l) => l.flow === f));
-  $("dGraphKey").innerHTML = kinds.map((f) => `<span><i class="dot" style="background:${f.c}"></i>${f.k}</span>`).join("") + (W > box.clientWidth ? `<span>Scroll sideways for older commits</span>` : "");
+  const others = OTHER.slice(0, Math.min(nOther, OTHER.length));
+  $("dGraphKey").innerHTML = kinds.map((f) => `<span><i class="dot" style="background:${f.k === "other" && others.length > 1 ? `conic-gradient(${others.join(",")})` : f.k === "other" ? others[0] : f.c}"></i>${f.k}</span>`).join("") + (W > box.clientWidth ? `<span>Scroll sideways for older commits</span>` : "");
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Branch graph of the last ${order.length} commits">${guides}
     <g fill="none" stroke-width="2.5" stroke-linecap="round" opacity=".85">${edges}</g>${nodes}${flags}</svg>`;
   box.scrollLeft = box.scrollWidth;
