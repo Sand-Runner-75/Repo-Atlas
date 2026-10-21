@@ -227,12 +227,35 @@ async function loadData(r, onStep) {
   const before = !whole && list[0]?.parents[0]?.sha;
   if (before) { try { initial = (await RA.gh(`/repos/${r.full_name}/git/trees/${before}?recursive=1`)).data.tree.filter((e) => e.type === "blob").map((e) => e.path); } catch {} }
   const commits = list.filter((c) => c.parents.length < 2).map((c) => ({ sha: c.sha, date: c.commit.author?.date || c.commit.committer?.date, msg: c.commit.message.split("\n")[0], author: c.author?.login || c.commit.author?.name || "someone", avatar: c.author?.avatar_url, files: [] }));
+  await nameAgents(r, commits, list[0]?.commit.committer?.date);
   let done = 0;
   await RA.pool(commits, 6, async (c) => {
     try { const { data } = await RA.gh(`/repos/${r.full_name}/commits/${c.sha}`); c.files = (data.files || []).map((f) => ({ p: f.filename, s: f.status, prev: f.previous_filename })); } catch {}
     onStep?.(++done, commits.length);
   });
   return finish({ initial, commits, whole });
+}
+// AI coding agents often commit under the owner's own account, so their work only shows in the branch name (gpt/..., claude/...).
+// Commits that came in through a pull request from such a branch are credited to the agent instead.
+const AGENTS = [[/^(gpt|chatgpt|codex|openai)[/-]/i, "ChatGPT"], [/^claude[/-]/i, "Claude"], [/^copilot[/-]/i, "Copilot"], [/^(cursor|devin|jules|gemini)[/-]/i, (ref) => ref.split(/[/-]/)[0].replace(/^./, (x) => x.toUpperCase())]];
+const BOTS = { claude: "Claude", "copilot-swe-agent[bot]": "Copilot", "chatgpt-codex-connector[bot]": "ChatGPT" };
+async function nameAgents(r, commits, since) {
+  const agentOf = (ref) => { for (const [re, name] of AGENTS) if (re.test(ref)) return typeof name === "function" ? name(ref) : name; return null; };
+  const bySha = new Map();
+  try {
+    // Pull requests merged inside the window, newest first; one request each for their commits, at most 20
+    const { data } = await RA.gh(`/repos/${r.full_name}/pulls?state=closed&sort=updated&direction=desc&per_page=100`);
+    const prs = data.filter((p) => p.merged_at && (!since || p.merged_at >= since) && p.head?.ref && agentOf(p.head.ref)).slice(0, 20);
+    await RA.pool(prs, 4, async (p) => {
+      const who = agentOf(p.head.ref);
+      if (p.merge_commit_sha) bySha.set(p.merge_commit_sha, who); // a squash merge lands as this one commit
+      try { for (const c of (await RA.gh(`/repos/${r.full_name}/pulls/${p.number}/commits?per_page=100`)).data) bySha.set(c.sha, who); } catch {}
+    });
+  } catch {}
+  for (const c of commits) {
+    const who = bySha.get(c.sha) || BOTS[c.author];
+    if (who && who !== c.author) { if (!BOTS[c.author] || BOTS[c.author] !== who) c.avatar = null; c.author = who; }
+  }
 }
 // Avatars are loaded for the picture and GIF too, so they must allow being drawn into a canvas (GitHub's do)
 async function finish(data) {
