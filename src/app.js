@@ -885,12 +885,40 @@ function graphComplete(g) {
   const cut = open.length ? Math.max(...open.map((b) => new Date(g.commits.get(g.oldest.get(b.name))?.date || Date.now()))) : -Infinity;
   return { open, all, done: all.filter((c) => new Date(c.date) >= cut) };
 }
-// Fetch pages until there are enough gap-free commits to show, or the whole history is in
+// The commits a window must reach so its lines join up: the default branch's head, and where each shown branch left the
+// default branch's history. Without them a busy repo whose newest commits are all on branches drew no main line, and
+// every branch started from a dashed stub. Fork points far back (over GREACH commits past the window) are left out.
+const GREACH = 500;
+function graphAnchors(g, all) {
+  const at = new Map(all.map((c, i) => [c.sha, i])), mainSet = new Set();
+  const defHead = g.pick.find((b) => b.name === g.def)?.commit.sha;
+  for (const st = defHead ? [defHead] : []; st.length;) {
+    const sha = st.pop(); if (mainSet.has(sha) || !g.commits.has(sha)) continue;
+    mainSet.add(sha); st.push(...g.commits.get(sha).parents);
+  }
+  const out = defHead && at.has(defHead) ? [defHead] : [];
+  for (const b of g.pick) {
+    if (b.name === g.def || !(at.get(b.commit.sha) < g.show)) continue;
+    let c = g.commits.get(b.commit.sha);
+    while (c && !mainSet.has(c.sha)) c = g.commits.get(c.parents[0]);
+    if (c) out.push(c.sha);
+  }
+  return out.filter((sha) => at.get(sha) < g.show + GREACH).map((sha) => g.commits.get(sha));
+}
+// The commits to draw: the newest g.show gap-free ones, reaching back to the anchors when they are in
+function graphWindow(g) {
+  const { open, all, done } = graphComplete(g), anchors = graphAnchors(g, all);
+  const oldest = anchors.reduce((t, c) => Math.min(t, new Date(c.date)), Infinity);
+  let n = Math.min(g.show, done.length);
+  while (n < done.length && new Date(done[n].date) >= oldest) n++;
+  return { open, all, done, win: done.slice(0, n), more: open.length > 0 || done.length > n, need: anchors.some((c) => new Date(c.date) < new Date(done[done.length - 1]?.date ?? Infinity)) || done.length < g.show, oldest };
+}
+// Fetch pages until there are enough gap-free commits to show, back to the anchors, or the whole history is in
 async function graphFill(g) {
   for (let i = 0; i < 100; i++) {
-    const { open, all, done } = graphComplete(g);
-    if (done.length >= g.show || !open.length) return;
-    const edge = all[g.show - 1] ? new Date(all[g.show - 1].date) : -Infinity;
+    const { open, all, need, oldest } = graphWindow(g);
+    if (!need || !open.length) return;
+    const edge = Math.min(all[g.show - 1] ? new Date(all[g.show - 1].date) : -Infinity, oldest);
     await pool(open.filter((b) => !g.oldest.has(b.name) || new Date(g.commits.get(g.oldest.get(b.name))?.date) >= edge), 4, async (b) => {
       const page = (g.page.get(b.name) || 0) + 1;
       try {
@@ -905,9 +933,8 @@ async function graphFill(g) {
   }
 }
 function drawGraph(g, keep) {
-  const { open, done } = graphComplete(g);
-  const more = open.length > 0 || done.length > g.show;
-  fillGraph(g.def, done.slice(0, g.show), g.heads, g.tags, g.total, { more, busy: g.busy, keep });
+  const { win, more } = graphWindow(g);
+  fillGraph(g.def, win, g.heads, g.tags, g.total, { more, busy: g.busy, keep });
 }
 async function loadOlderCommits() {
   const g = G;
@@ -954,7 +981,10 @@ function fillGraph(def, all, heads, tags, totalBranches, opt = {}) {
     for (let c = win.get(sha); c && !laneOf.has(c.sha); c = win.get(c.parents[0])) { laneOf.set(c.sha, lane); lane.commits.push(c); }
     if (lane.commits.length) lanes.push(lane);
   };
-  for (const b of [...heads].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
+  // Of two branches of one kind sharing commits, the one with the older pull request claims them: a branch made from
+  // another usually gets its pull request later (or none, like a review branch)
+  const byPr = (a, b) => (a.pr ? 0 : 1) - (b.pr ? 0 : 1) || (a.pr || 0) - (b.pr || 0);
+  for (const b of [...heads].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def) || byPr(a, b))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
   // The first commit that merged each commit in, found once so long histories stay quick
   const mergedBy = new Map();
   for (const k of order) for (const p of k.parents.slice(1)) if (!mergedBy.has(p)) mergedBy.set(p, k);
