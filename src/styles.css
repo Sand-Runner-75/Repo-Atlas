@@ -244,6 +244,14 @@ button.si:hover { background: var(--hover); }
 .chart text { fill: var(--muted); font: 11px var(--f-mono); }
 .scroll-y { max-height: 480px; overflow-y: auto; overflow-x: hidden; }
 .scroll-x { overflow-x: auto; }
+.ctwrap { position: relative; }
+.ctwrap canvas { display: block; width: 100%; height: 480px; border-radius: 4px; background: #0b0e14; cursor: grab; touch-action: none; }
+.ctwrap canvas:active { cursor: grabbing; }
+.ctover { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: #8b949e; font-size: 12.5px; text-align: center; padding: 0 20px; }
+.ctover[hidden] { display: none; }
+.ctbar { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.ctbar input { flex: 1; accent-color: var(--accent); }
+.cthint { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
 .empty { color: var(--muted); font-size: 12.5px; padding: 18px 0; text-align: center; }
 .bars { display: grid; gap: 7px; }
 .brow { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 12.5px; }

@@ -350,5 +350,5 @@ RA.addCommands([
   { id: "replay", label: "Repository: Replay Branch History", when: RA.isRepo, run: toggleReplay },
   { id: "replayGif", label: "Repository: Save Branch History as GIF", when: RA.isRepo, run: replayGif },
 ]);
-window.AtlasShare = { modal, closeModal, head, codebox, compareCard, duelRows, openShareModal, toBlob };
+window.AtlasShare = { modal, closeModal, head, codebox, compareCard, duelRows, openShareModal, toBlob, saveBlob, FONT, MONO };
 })();
