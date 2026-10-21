@@ -213,7 +213,7 @@ function graphParts() {
 function showUpTo(svg, k) { for (const el of svg.querySelectorAll("[data-s]")) el.style.opacity = +el.dataset.s <= k ? "" : "0"; }
 function stopReplay(finish) {
   if (!replay) return;
-  clearInterval(replay.timer);
+  clearInterval(replay.timer); replay.box.replaying = false;
   if (finish && replay.svg.isConnected) showUpTo(replay.svg, Infinity);
   replay = null;
   const b = $("replayBtn"); if (b) b.innerHTML = `${I.play}Replay history`;
@@ -223,7 +223,7 @@ function toggleReplay() {
   const g = graphParts(); if (!g) return RA.toast("info", "Wait for the branch graph to finish loading, then try again.");
   const { box, svg, steps } = g;
   let k = 0;
-  replay = { svg, timer: null };
+  replay = { svg, box, timer: null }; box.replaying = true;
   $("replayBtn").innerHTML = `${I.pause}Stop`;
   showUpTo(svg, 0); box.scrollLeft = 0;
   replay.timer = setInterval(() => {
@@ -234,20 +234,25 @@ function toggleReplay() {
   }, Math.max(60, Math.min(220, 6000 / steps.length)));
 }
 // The graph SVG as a stand-alone image: theme colors filled in, since an image can't see the page's styles
-function standaloneSvg(svg) {
+// x0 crops off everything left of it, so a long history still fits the GIF
+function standaloneSvg(svg, x0 = 0) {
   const clone = svg.cloneNode(true);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  if (x0 > 0) { const w = +svg.getAttribute("width") - x0, h = svg.getAttribute("height"); clone.setAttribute("viewBox", `${x0} 0 ${w} ${h}`); clone.setAttribute("width", w); }
   for (const a of clone.querySelectorAll("a")) a.replaceWith(...a.childNodes);
   const style = `text{font:11px ${MONO};fill:var(--muted)}text.fl{fill:#fff;font:600 10px ${MONO}}.gn circle{stroke:var(--surface);stroke-width:3}`;
   clone.insertAdjacentHTML("afterbegin", `<style>${style}</style>`);
   const text = new XMLSerializer().serializeToString(clone);
   return text.replace(/var\(--([\w-]+)\)/g, (_, n) => css("--" + n) || "#888");
 }
+const GIF_STEPS = 60;
 async function replayGif() {
   const g = graphParts(); if (!g) return RA.toast("info", "Wait for the branch graph to finish loading, then try again.");
   stopReplay(true);
-  const r = RA.curRepo(), { svg, steps, key } = g;
-  const W0 = +svg.getAttribute("width"), H0 = +svg.getAttribute("height");
+  const r = RA.curRepo(), { svg, key } = g;
+  // A GIF of a long history plays only its newest commits, the older ones standing still at the start
+  const first = Math.max(0, g.steps.length - GIF_STEPS), steps = g.steps.slice(first), x0 = first ? Math.max(0, steps[0].x - 46) : 0;
+  const W0 = +svg.getAttribute("width") - x0, H0 = +svg.getAttribute("height");
   const scale = Math.min(1.5, 1100 / W0), PAD = 24, HEAD = 64, FOOT = 34;
   const W = Math.round(Math.max(560, W0 * scale + PAD * 2));
   const canvas = document.createElement("canvas"); canvas.width = W;
@@ -266,8 +271,8 @@ async function replayGif() {
   RA.busyStart("Making the GIF…");
   try {
     for (let k = 0; k < n; k++) {
-      showUpTo(svg, k);
-      const img = await loadImage("data:image/svg+xml;charset=utf-8," + encodeURIComponent(standaloneSvg(svg)));
+      showUpTo(svg, first + k);
+      const img = await loadImage("data:image/svg+xml;charset=utf-8," + encodeURIComponent(standaloneSvg(svg, x0)));
       ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
       ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
       ctx.fillStyle = ink; ctx.font = `600 18px ${FONT}`; ctx.fillText(fit(ctx, r ? r.full_name : "Branch graph", W - 200), PAD, 30);
@@ -293,7 +298,7 @@ async function replayGif() {
   modal(`${head("History replay")}<img class="preview" src="${canvas.toDataURL("image/png")}" alt="Last frame of the replay" id="gifPrev">
     <div class="acts"><button type="button" class="btn primary" id="gDl">${I.download}Download GIF</button>
       <button type="button" class="btn" id="gX">Post on X</button><button type="button" class="btn" id="gLink">${I.link}Copy link</button></div>
-    <p>${n} commits, ${(blob.size / 1048576).toFixed(1)} MB. Attach the GIF to a post or a pull request to show how the work came together.</p>`);
+    <p>${first ? `The newest ${n}` : n} commits, ${(blob.size / 1048576).toFixed(1)} MB. Attach the GIF to a post or a pull request to show how the work came together.</p>`);
   // The preview plays the real GIF where the page allows it
   const prev = $("gifPrev"); const anim = new Image(); anim.onload = () => { if (prev.isConnected) prev.src = url; }; anim.src = url;
   $("gDl").onclick = () => saveBlob(blob, name);

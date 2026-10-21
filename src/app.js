@@ -858,22 +858,63 @@ const OTHER = ["#17a2a2", "#d4508e", "#b39a1b", "#45a6d6", "#e07a5f", "#86b32a",
 // Which branch claims a commit first: main, then develop, then the short-lived kinds
 const RANK = ["main", "develop", "release", "hotfix", "feature", "other"];
 const rankOf = (name, def) => RANK.indexOf(flowOf(name, def).k);
+// The graph starts with the newest commits and loads older ones a page at a time (scroll to the left edge, or the button)
+const GFIRST = 100, GMORE = 200;
+let G = null;
 async function loadGraph(r, full, list) {
   const def = r.default_branch;
   const pick = [...list].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def) || a.name.localeCompare(b.name)).slice(0, 15);
-  const commits = new Map();
-  await pool(pick, 4, async (b) => {
-    try {
-      const { data } = await gh(`/repos/${r.full_name}/commits?sha=${encodeURIComponent(b.name)}&per_page=50`);
-      for (const c of data) commits.set(c.sha, { sha: c.sha, parents: c.parents.map((p) => p.sha), date: c.commit.committer?.date || c.commit.author?.date, msg: c.commit.message.split("\n")[0], author: c.author?.login || c.commit.author?.name || "", url: c.html_url });
-    } catch {}
-  });
+  const g = G = { r, full, def, pick, total: list.length, commits: new Map(), page: new Map(), oldest: new Map(), more: new Set(pick.map((b) => b.name)), show: GFIRST, busy: false };
+  await graphFill(g);
   let tags = []; try { tags = (await gh(`/repos/${r.full_name}/tags?per_page=100`)).data; } catch {}
   // The newest pull request opened from each branch, so labels can say "PR #12" instead of a long name
   const prOf = new Map();
   try { for (const p of (await gh(`/repos/${r.full_name}/pulls?state=all&per_page=100`)).data) if (p.head?.repo?.full_name === r.full_name && !prOf.has(p.head.ref)) prOf.set(p.head.ref, p.number); } catch {}
-  if (repoFor !== full) return;
-  fillGraph(def, [...commits.values()], pick.map((b) => ({ name: b.name, sha: b.commit.sha, pr: prOf.get(b.name) })), tags.map((t) => ({ name: t.name, sha: t.commit.sha })), list.length);
+  g.heads = pick.map((b) => ({ name: b.name, sha: b.commit.sha, pr: prOf.get(b.name) }));
+  g.tags = tags.map((t) => ({ name: t.name, sha: t.commit.sha }));
+  if (repoFor === full && G === g) drawGraph(g);
+}
+// Branches that may still have older commits on GitHub. A branch whose oldest loaded commit already has its parents
+// loaded (they came with another branch) is skipped, since that branch brings the rest.
+const graphOpen = (g) => g.pick.filter((b) => g.more.has(b.name) && !g.commits.get(g.oldest.get(b.name))?.parents.every((p) => g.commits.has(p)));
+// Only commits newer than every open branch's oldest loaded commit are known to have no gaps
+function graphComplete(g) {
+  const open = graphOpen(g), all = [...g.commits.values()].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const cut = open.length ? Math.max(...open.map((b) => new Date(g.commits.get(g.oldest.get(b.name))?.date || Date.now()))) : -Infinity;
+  return { open, all, done: all.filter((c) => new Date(c.date) >= cut) };
+}
+// Fetch pages until there are enough gap-free commits to show, or the whole history is in
+async function graphFill(g) {
+  for (let i = 0; i < 40; i++) {
+    const { open, all, done } = graphComplete(g);
+    if (done.length >= g.show || !open.length) return;
+    const edge = all[g.show - 1] ? new Date(all[g.show - 1].date) : -Infinity;
+    await pool(open.filter((b) => !g.oldest.has(b.name) || new Date(g.commits.get(g.oldest.get(b.name))?.date) >= edge), 4, async (b) => {
+      const page = (g.page.get(b.name) || 0) + 1;
+      try {
+        const { data } = await gh(`/repos/${g.r.full_name}/commits?sha=${encodeURIComponent(b.name)}&per_page=100&page=${page}`);
+        for (const c of data) if (!g.commits.has(c.sha)) g.commits.set(c.sha, { sha: c.sha, parents: c.parents.map((p) => p.sha), date: c.commit.committer?.date || c.commit.author?.date, msg: c.commit.message.split("\n")[0], author: c.author?.login || c.commit.author?.name || "", url: c.html_url });
+        g.page.set(b.name, page);
+        if (data.length) g.oldest.set(b.name, data[data.length - 1].sha);
+        if (data.length < 100) g.more.delete(b.name);
+      } catch { g.err = true; }
+    });
+    if (G !== g || g.err) return;
+  }
+}
+function drawGraph(g, keep) {
+  const { open, done } = graphComplete(g);
+  const more = open.length > 0 || done.length > g.show;
+  fillGraph(g.def, done.slice(0, g.show), g.heads, g.tags, g.total, { more, busy: g.busy, keep });
+}
+async function loadOlderCommits() {
+  const g = G;
+  if (!g || g.busy || repoFor !== g.full || !g.heads) return;
+  g.busy = true; g.err = false; g.show += GMORE;
+  const b = $("graphOlder"); if (b) { b.disabled = true; b.textContent = "Loading older commits…"; }
+  try { await graphFill(g); } finally { g.busy = false; }
+  if (g.err) toast("error", "Couldn't load older commits. Check your connection or GitHub rate limit, then press Load older commits.");
+  if (repoFor === g.full && G === g) drawGraph(g, true);
 }
 function sampleGraph(def) {
   const c = (sha, parents, d, msg) => ({ sha, parents, date: new Date(Date.now() - d * DAY).toISOString(), msg, author: "sample-dev" });
@@ -891,9 +932,9 @@ function sampleGraph(def) {
     tags: [{ name: "v0.5", sha: "a9d41f7" }, { name: "v1.0", sha: "d4b7a62" }, { name: "v1", sha: "a7f05d3" }],
   };
 }
-function fillGraph(def, all, heads, tags, totalBranches) {
-  const box = $("dGraph");
-  const win = new Map([...all].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 60).map((c) => [c.sha, { ...c }]));
+function fillGraph(def, all, heads, tags, totalBranches, opt = {}) {
+  const box = $("dGraph"), fromRight = box.scrollWidth - box.scrollLeft;
+  const win = new Map(all.map((c) => [c.sha, { ...c }]));
   if (!win.size) { box.innerHTML = `<div class="empty">No commits to draw.</div>`; $("dGraphSum").innerHTML = $("dGraphKey").innerHTML = ""; return; }
   // Oldest first, but never before a parent (commit dates can be out of order)
   const order = [], placed = new Set(), left = [...win.values()].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -909,19 +950,22 @@ function fillGraph(def, all, heads, tags, totalBranches) {
     if (lane.commits.length) lanes.push(lane);
   };
   for (const b of [...heads].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
+  // The first commit that merged each commit in, found once so long histories stay quick
+  const mergedBy = new Map();
+  for (const k of order) for (const p of k.parents.slice(1)) if (!mergedBy.has(p)) mergedBy.set(p, k);
   // What's left was merged from a branch that has since been deleted; name it from the merge message
   for (const c of [...order].reverse()) {
     if (laneOf.has(c.sha)) continue;
-    const m = order.find((k) => k.parents.indexOf(c.sha) > 0)?.msg || "";
+    const m = mergedBy.get(c.sha)?.msg || "";
     const name = /Merge branch '([^']+)'/.exec(m)?.[1] || /Merge pull request #\d+ from [^/\s]+\/(\S+)/.exec(m)?.[1] || "merged branch";
     walk(c.sha, { name, flow: flowOf(name, def), pr: +(/Merge pull request #(\d+)/.exec(m)?.[1]) || undefined, gone: true });
   }
   // A lane spans from the commit it forked from to the last commit it merged into
+  for (const k of order) for (const p of k.parents.slice(1)) { const l = laneOf.get(p); if (l) (l.into ||= []).push(k.x); }
   for (const l of lanes) {
-    const xs = l.commits.map((c) => c.x), base = win.get(l.commits[l.commits.length - 1].parents[0]);
-    if (base) xs.push(base.x);
-    for (const k of order) if (k.parents.slice(1).some((p) => laneOf.get(p) === l)) xs.push(k.x);
-    l.lo = Math.min(...xs); l.hi = Math.max(...xs);
+    const base = win.get(l.commits[l.commits.length - 1].parents[0]);
+    const xs = [...l.commits.map((c) => c.x), ...(base ? [base.x] : []), ...(l.into || [])];
+    l.lo = xs.reduce((a, x) => Math.min(a, x)); l.hi = xs.reduce((a, x) => Math.max(a, x));
   }
   // Rows go main, hotfix, release, develop, feature, other; branches of one kind share a row when they don't overlap
   const rows = [];
@@ -972,13 +1016,18 @@ function fillGraph(def, all, heads, tags, totalBranches) {
   }).join("");
   const guides = rows.map((_, i) => `<line x1="0" x2="${W}" y1="${TOP + i * ROW}" y2="${TOP + i * ROW}" stroke="var(--line-strong)" stroke-dasharray="3 6"/>`).join("");
   const nTags = [...tagsAt.values()].reduce((a, t) => a + t.length, 0);
-  $("dGraphSum").innerHTML = `<span><b>${order.length}</b> recent commits</span><span><b>${lanes.length}</b> line${lanes.length === 1 ? "" : "s"} of work</span><span><b>${nTags}</b> tag${nTags === 1 ? "" : "s"}</span>${totalBranches > heads.length ? `<span>Drawing ${heads.length} of ${totalBranches} branches</span>` : ""}`;
-  const keyed = [...new Map(lanes.map((l) => [l.name + l.c, l])).values()];
-  $("dGraphKey").innerHTML = `<table class="gkey"><tr><th></th><th>Label</th><th>Branch</th></tr>${keyed.map((l) => `<tr><td><i class="dot" style="background:${l.c}"></i></td><td class="mono">${l.pr ? `PR #${l.pr}` : l.gone ? "—" : esc(l.name.length > 24 ? l.name.slice(0, 23) + "…" : l.name)}</td><td title="${esc(l.name)}">${esc(l.name)}${l.gone ? " <span>(deleted)</span>" : ""}</td></tr>`).join("")}</table>`
-    + (W > box.clientWidth ? `<span>Scroll sideways for older commits</span>` : "");
+  const older = opt.more ? `<button type="button" class="btn" id="graphOlder" data-cmd="graphOlder" title="Load older commits (or scroll to the left edge)"${opt.busy ? " disabled" : ""}>${opt.busy ? "Loading older commits…" : "Load older commits"}</button>` : "";
+  $("dGraphSum").innerHTML = `<span><b>${fmt(order.length)}</b> ${opt.more ? "newest commits" : `commit${order.length === 1 ? "" : "s"} (whole history)`}</span><span><b>${lanes.length}</b> line${lanes.length === 1 ? "" : "s"} of work</span><span><b>${nTags}</b> tag${nTags === 1 ? "" : "s"}</span>${totalBranches > heads.length ? `<span>Drawing ${heads.length} of ${totalBranches} branches</span>` : ""}${older}`;
+  // A long history merges many deleted branches; the key lists only the newest of them
+  const uniq = [...new Map(lanes.map((l) => [l.name + l.c, l])).values()], goneAll = uniq.filter((l) => l.gone).sort((a, b) => b.hi - a.hi);
+  const keyed = uniq.filter((l) => !l.gone || goneAll.indexOf(l) < 8), hidden = goneAll.length - Math.min(8, goneAll.length);
+  $("dGraphKey").innerHTML = `<table class="gkey"><tr><th></th><th>Label</th><th>Branch</th></tr>${keyed.map((l) => `<tr><td><i class="dot" style="background:${l.c}"></i></td><td class="mono">${l.pr ? `PR #${l.pr}` : l.gone ? "—" : esc(l.name.length > 24 ? l.name.slice(0, 23) + "…" : l.name)}</td><td title="${esc(l.name)}">${esc(l.name)}${l.gone ? " <span>(deleted)</span>" : ""}</td></tr>`).join("")}${hidden ? `<tr><td></td><td></td><td><span>+${hidden} older deleted branch${hidden === 1 ? "" : "es"} (hover a dot to see its branch)</span></td></tr>` : ""}</table>`
+    + (W > box.clientWidth ? `<span>Scroll sideways for older commits${opt.more ? "; reaching the left edge loads more" : ""}</span>` : "");
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Branch graph of the last ${order.length} commits">${guides}
     <g fill="none" stroke-width="2.5" stroke-linecap="round" opacity=".85">${edges}</g>${nodes}${flags}</svg>`;
-  box.scrollLeft = box.scrollWidth;
+  // After loading older commits, keep the same commits in view instead of jumping back to the newest
+  box.scrollLeft = opt.keep ? box.scrollWidth - fromRight : box.scrollWidth;
+  box.onscroll = opt.more ? () => { if (box.scrollLeft < 120 && box.scrollWidth > box.clientWidth && !box.replaying && !G?.err) loadOlderCommits(); } : null;
   box.steps = order.map((c) => ({ date: c.date, msg: c.msg, x: X(c) }));
   box.key = keyed.map((l) => ({ c: l.c, label: l.pr ? `PR #${l.pr}` : "", name: l.name + (l.gone ? " (deleted)" : "") }));
 }
@@ -1092,6 +1141,7 @@ const COMMANDS = [
   { id: "prev", label: "View: Previous Tab", keys: ["Ctrl", "Shift", "Tab"], run: () => cycleTab(-1) },
   { id: "github", label: "Repository: Open on GitHub", keys: ["Ctrl", "Shift", "G"], when: () => isRepo() && !S.sample, run: () => openExternal(curRepo().html_url) },
   { id: "clone", label: "Repository: Copy Clone URL", keys: ["Ctrl", "Shift", "C"], when: isRepo, run: () => { const r = curRepo(); copyText(r.clone_url || `https://github.com/${r.full_name}.git`); } },
+  { id: "graphOlder", label: "Repository: Load Older Commits in Branch Graph", when: () => isRepo() && !S.sample && !!G?.heads, run: () => loadOlderCommits() },
   { id: "keep", label: "Repository: Keep Tab Open", when: () => activeTab()?.preview, run: () => { activeTab().preview = false; renderTabs(); } },
   { id: "profile", label: "Account: Open Profile on GitHub", when: () => !S.sample, run: () => openExternal(S.user.html_url) },
   { id: "me", label: "Account: Load My Account", when: () => !!S.me, run: () => load(S.me.login) },
