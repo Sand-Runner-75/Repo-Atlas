@@ -869,8 +869,11 @@ async function loadGraph(r, full, list) {
     } catch {}
   });
   let tags = []; try { tags = (await gh(`/repos/${r.full_name}/tags?per_page=100`)).data; } catch {}
+  // The newest pull request opened from each branch, so labels can say "PR #12" instead of a long name
+  const prOf = new Map();
+  try { for (const p of (await gh(`/repos/${r.full_name}/pulls?state=all&per_page=100`)).data) if (p.head?.repo?.full_name === r.full_name && !prOf.has(p.head.ref)) prOf.set(p.head.ref, p.number); } catch {}
   if (repoFor !== full) return;
-  fillGraph(def, [...commits.values()], pick.map((b) => ({ name: b.name, sha: b.commit.sha })), tags.map((t) => ({ name: t.name, sha: t.commit.sha })), list.length);
+  fillGraph(def, [...commits.values()], pick.map((b) => ({ name: b.name, sha: b.commit.sha, pr: prOf.get(b.name) })), tags.map((t) => ({ name: t.name, sha: t.commit.sha })), list.length);
 }
 function sampleGraph(def) {
   const c = (sha, parents, d, msg) => ({ sha, parents, date: new Date(Date.now() - d * DAY).toISOString(), msg, author: "sample-dev" });
@@ -884,7 +887,7 @@ function sampleGraph(def) {
       c("a7f05d3", ["a4e2b95", "d9c3f71"], 5, "Merge branch 'develop'"), c("d6e8a24", ["d9c3f71"], 3, "Start the 1.1 cycle"),
       c("f5c2d19", ["d6e8a24"], 2, "Add dark mode toggle"),
     ],
-    heads: [{ name: def, sha: "a7f05d3" }, { name: "develop", sha: "d6e8a24" }, { name: "hotfix/startup-crash", sha: "e5a09c2" }, { name: "feature/dark-mode", sha: "f5c2d19" }],
+    heads: [{ name: def, sha: "a7f05d3" }, { name: "develop", sha: "d6e8a24" }, { name: "hotfix/startup-crash", sha: "e5a09c2", pr: 3 }, { name: "feature/dark-mode", sha: "f5c2d19", pr: 6 }],
     tags: [{ name: "v0.5", sha: "a9d41f7" }, { name: "v1.0", sha: "d4b7a62" }, { name: "v1", sha: "a7f05d3" }],
   };
 }
@@ -905,13 +908,13 @@ function fillGraph(def, all, heads, tags, totalBranches) {
     for (let c = win.get(sha); c && !laneOf.has(c.sha); c = win.get(c.parents[0])) { laneOf.set(c.sha, lane); lane.commits.push(c); }
     if (lane.commits.length) lanes.push(lane);
   };
-  for (const b of [...heads].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def) });
+  for (const b of [...heads].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def))) walk(b.sha, { name: b.name, flow: flowOf(b.name, def), pr: b.pr });
   // What's left was merged from a branch that has since been deleted; name it from the merge message
   for (const c of [...order].reverse()) {
     if (laneOf.has(c.sha)) continue;
     const m = order.find((k) => k.parents.indexOf(c.sha) > 0)?.msg || "";
     const name = /Merge branch '([^']+)'/.exec(m)?.[1] || /Merge pull request #\d+ from [^/\s]+\/(\S+)/.exec(m)?.[1] || "merged branch";
-    walk(c.sha, { name, flow: flowOf(name, def), gone: true });
+    walk(c.sha, { name, flow: flowOf(name, def), pr: +(/Merge pull request #(\d+)/.exec(m)?.[1]) || undefined, gone: true });
   }
   // A lane spans from the commit it forked from to the last commit it merged into
   for (const l of lanes) {
@@ -947,8 +950,11 @@ function fillGraph(def, all, heads, tags, totalBranches) {
     : i === 0 ? `<path data-s="${c.x}" d="M${X(c) - COL * 0.7} ${Y(c)}H${X(c)}" stroke="${laneOf.get(c.sha).c}" stroke-dasharray="3 4"/>` : "")).join("");
   const at = (list) => { const m = new Map(); for (const t of list) if (win.has(t.sha)) m.set(t.sha, [...(m.get(t.sha) || []), t.name]); return m; };
   const tagsAt = at(tags), headsAt = at(heads);
-  const flag = (x, y, names, color, above, s) => {
-    let text = names[0].length > 24 ? names[0].slice(0, 23) + "…" : names[0];
+  // Branch labels show just the pull request number when there is one; the key under the graph names each color
+  const prNamed = new Map(heads.filter((b) => b.pr).map((b) => [b.name, b.pr]));
+  const short = (name) => prNamed.has(name) ? `PR #${prNamed.get(name)}` : name;
+  const flag = (x, y, names, color, above, s, label = names[0]) => {
+    let text = label.length > 24 ? label.slice(0, 23) + "…" : label;
     if (names.length > 1) text += ` +${names.length - 1}`;
     const w = text.length * 6.1 + 12, h = 16, fx = Math.min(W - w - 2, Math.max(2, x - w / 2)), fy = above ? y - R - 6 - h : y + R + 6;
     const tip = above ? `${x - 4},${fy + h} ${x + 4},${fy + h} ${x},${fy + h + 4}` : `${x - 4},${fy} ${x + 4},${fy} ${x},${fy - 4}`;
@@ -962,18 +968,19 @@ function fillGraph(def, all, heads, tags, totalBranches) {
   }).join("");
   const flags = order.map((c) => {
     const x = X(c), y = Y(c), t = tagsAt.get(c.sha), h = headsAt.get(c.sha);
-    return (t ? flag(x, y, t, laneOf.get(c.sha).c, true, c.x) : "") + (h ? flag(x, y, h, (laneNamed.get(h[0]) || laneOf.get(c.sha)).c, false, c.x) : "");
+    return (t ? flag(x, y, t, laneOf.get(c.sha).c, true, c.x) : "") + (h ? flag(x, y, h, (laneNamed.get(h[0]) || laneOf.get(c.sha)).c, false, c.x, short(h[0])) : "");
   }).join("");
   const guides = rows.map((_, i) => `<line x1="0" x2="${W}" y1="${TOP + i * ROW}" y2="${TOP + i * ROW}" stroke="var(--line-strong)" stroke-dasharray="3 6"/>`).join("");
   const nTags = [...tagsAt.values()].reduce((a, t) => a + t.length, 0);
   $("dGraphSum").innerHTML = `<span><b>${order.length}</b> recent commits</span><span><b>${lanes.length}</b> line${lanes.length === 1 ? "" : "s"} of work</span><span><b>${nTags}</b> tag${nTags === 1 ? "" : "s"}</span>${totalBranches > heads.length ? `<span>Drawing ${heads.length} of ${totalBranches} branches</span>` : ""}`;
-  const kinds = FLOW.filter((f) => lanes.some((l) => l.flow === f));
-  const others = OTHER.slice(0, Math.min(nOther, OTHER.length));
-  $("dGraphKey").innerHTML = kinds.map((f) => `<span><i class="dot" style="background:${f.k === "other" && others.length > 1 ? `conic-gradient(${others.join(",")})` : f.k === "other" ? others[0] : f.c}"></i>${f.k}</span>`).join("") + (W > box.clientWidth ? `<span>Scroll sideways for older commits</span>` : "");
+  const keyed = [...new Map(lanes.map((l) => [l.name + l.c, l])).values()];
+  $("dGraphKey").innerHTML = `<table class="gkey"><tr><th></th><th>Label</th><th>Branch</th></tr>${keyed.map((l) => `<tr><td><i class="dot" style="background:${l.c}"></i></td><td class="mono">${l.pr ? `PR #${l.pr}` : l.gone ? "—" : esc(l.name.length > 24 ? l.name.slice(0, 23) + "…" : l.name)}</td><td title="${esc(l.name)}">${esc(l.name)}${l.gone ? " <span>(deleted)</span>" : ""}</td></tr>`).join("")}</table>`
+    + (W > box.clientWidth ? `<span>Scroll sideways for older commits</span>` : "");
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Branch graph of the last ${order.length} commits">${guides}
     <g fill="none" stroke-width="2.5" stroke-linecap="round" opacity=".85">${edges}</g>${nodes}${flags}</svg>`;
   box.scrollLeft = box.scrollWidth;
   box.steps = order.map((c) => ({ date: c.date, msg: c.msg, x: X(c) }));
+  box.key = keyed.map((l) => ({ c: l.c, label: l.pr ? `PR #${l.pr}` : "", name: l.name + (l.gone ? " (deleted)" : "") }));
 }
 function fillBranches(def, defDate, rows, total) {
   const box = $("dBranches");

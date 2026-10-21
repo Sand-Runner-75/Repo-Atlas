@@ -300,6 +300,11 @@ button.si:hover { background: var(--hover); }
 #dGraph .gn circle { stroke: var(--surface); stroke-width: 3; }
 #dGraph .gn:hover circle { stroke: var(--ink-strong); }
 #dGraph text.fl { fill: #fff; font: 600 10px var(--f-mono); }
+#dGraphKey { flex-direction: column; align-items: flex-start; gap: 6px; }
+.gkey { border-collapse: collapse; font-size: 12px; }
+.gkey th { text-align: left; font-weight: 600; color: var(--muted); padding: 0 14px 4px 0; }
+.gkey td { padding: 2px 14px 2px 0; color: var(--ink); max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gkey td span { color: var(--muted); }
 
 #tip { position: fixed; z-index: 90; pointer-events: none; background: var(--widget); color: var(--ink); border: 1px solid var(--line-strong); box-shadow: var(--shadow); font-size: 12px; padding: 5px 8px; border-radius: 4px; max-width: 280px; line-height: 1.45; white-space: pre-line; }
 

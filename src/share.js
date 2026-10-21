@@ -208,7 +208,7 @@ function openShareModal(title, canvas, blob, file, text, link, note) {
 let replay = null;
 function graphParts() {
   const box = $("dGraph"), svg = box?.querySelector("svg");
-  return svg && box.steps?.length ? { box, svg, steps: box.steps } : null;
+  return svg && box.steps?.length ? { box, svg, steps: box.steps, key: box.key || [] } : null;
 }
 function showUpTo(svg, k) { for (const el of svg.querySelectorAll("[data-s]")) el.style.opacity = +el.dataset.s <= k ? "" : "0"; }
 function stopReplay(finish) {
@@ -246,12 +246,21 @@ function standaloneSvg(svg) {
 async function replayGif() {
   const g = graphParts(); if (!g) return RA.toast("info", "Wait for the branch graph to finish loading, then try again.");
   stopReplay(true);
-  const r = RA.curRepo(), { svg, steps } = g;
+  const r = RA.curRepo(), { svg, steps, key } = g;
   const W0 = +svg.getAttribute("width"), H0 = +svg.getAttribute("height");
   const scale = Math.min(1.5, 1100 / W0), PAD = 24, HEAD = 64, FOOT = 34;
-  const W = Math.round(Math.max(560, W0 * scale + PAD * 2)), H = Math.round(H0 * scale + HEAD + FOOT);
-  const canvas = document.createElement("canvas"); canvas.width = W; canvas.height = H;
+  const W = Math.round(Math.max(560, W0 * scale + PAD * 2));
+  const canvas = document.createElement("canvas"); canvas.width = W;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  // The color key under the graph, since labels only say "PR #12": entries flow left to right and wrap
+  ctx.font = `12px ${MONO}`;
+  let kx = PAD, ky = 0;
+  const keyAt = key.map((e) => {
+    const text = fit(ctx, (e.label ? e.label + "  " : "") + e.name, W - PAD * 2 - 20), w = ctx.measureText(text).width + 34;
+    if (kx > PAD && kx + w > W - PAD) { kx = PAD; ky += 20; }
+    const at = { ...e, text, x: kx, y: ky }; kx += w; return at;
+  });
+  const KEY = keyAt.length ? ky + 30 : 0, H = Math.round(H0 * scale + HEAD + KEY + FOOT); canvas.height = H;
   const bg = css("--surface") || "#181818", ink = css("--ink-strong") || "#fff", muted = css("--muted") || "#999";
   const frames = [], n = steps.length;
   RA.busyStart("Making the GIF…");
@@ -266,6 +275,12 @@ async function replayGif() {
       ctx.fillText(fit(ctx, `${RA.dateStr(steps[k].date)} · ${steps[k].msg}`, W - PAD * 2), PAD, 52);
       ctx.textAlign = "right"; ctx.fillText(`${k + 1}/${n}`, W - PAD, 30);
       if (img) ctx.drawImage(img, PAD, HEAD, W0 * scale, H0 * scale);
+      ctx.textAlign = "left"; ctx.font = `12px ${MONO}`;
+      for (const e of keyAt) {
+        const y = HEAD + H0 * scale + 10 + e.y;
+        ctx.fillStyle = e.c; ctx.beginPath(); ctx.arc(e.x + 6, y + 6, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = muted; ctx.fillText(e.text, e.x + 18, y + 10);
+      }
       ctx.textAlign = "right"; ctx.fillStyle = muted; ctx.font = `600 12px ${FONT}`; ctx.fillText("Made with Repo Atlas", W - PAD, H - 12);
       frames.push({ data: ctx.getImageData(0, 0, W, H).data, delay: k === n - 1 ? 2600 : Math.max(80, Math.min(200, 7000 / n)) });
       if (k % 8 === 0) await new Promise((ok) => setTimeout(ok));
