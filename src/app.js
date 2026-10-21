@@ -984,6 +984,7 @@ function fillGraph(def, all, heads, tags, totalBranches) {
 }
 function fillBranches(def, defDate, rows, total) {
   const box = $("dBranches");
+  box.redraw = () => fillBranches(def, defDate, rows, total);
   const stale = rows.filter((b) => b.date && Date.now() - new Date(b.date) > 90 * DAY).length;
   const merged = rows.filter((b) => b.ahead === 0).length;
   $("dBranchSum").innerHTML = `<span><b>${total + 1}</b> branches</span><span><b>${merged}</b> merged</span><span><b>${stale}</b> stale</span>${total > rows.length ? `<span>Showing ${rows.length}</span>` : ""}`;
@@ -1017,6 +1018,7 @@ function fillDrawerLangs(data) {
 }
 function fillDrawerCommits(weeks) {
   const box = $("dCommits");
+  box.redraw = () => fillDrawerCommits(weeks);
   if (!weeks.length) { box.innerHTML = `<div class="empty">No commits in the last year.</div>`; return; }
   const W = Math.max(280, box.clientWidth), H = 130, pb = 18, pt = 20;
   const max = Math.max(1, ...weeks.map((w) => w.total)); const bw = W / weeks.length;
@@ -1058,7 +1060,7 @@ function applyTheme() {
 }
 mq.addEventListener("change", () => themePref() === "system" && applyTheme());
 let rz;
-function relayout() { clearTimeout(rz); rz = setTimeout(() => { if (activeTab()?.kind === "overview") { renderYears(); renderLife(); renderScatter(); } }, 120); }
+function relayout() { clearTimeout(rz); rz = setTimeout(() => { if (activeTab()?.kind === "overview") { renderYears(); renderLife(); renderScatter(); } else if (isRepo()) { $("dBranches")?.redraw?.(); $("dCommits")?.redraw?.(); } }, 120); }
 window.addEventListener("resize", relayout);
 // Drag the sash to resize the sidebar
 (() => {

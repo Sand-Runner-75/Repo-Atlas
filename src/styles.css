@@ -146,7 +146,8 @@ select { height: 26px; border: 1px solid var(--line-strong); border-radius: 4px;
 @keyframes slide { from { left: -30%; } to { left: 100%; } }
 .views { flex: 1; min-height: 0; position: relative; }
 .view { position: absolute; inset: 0; overflow: auto; }
-.page { max-width: 1280px; margin: 0 auto; padding: 22px 28px 48px; display: grid; gap: 16px; }
+/* Grow with the window so wide and maximised screens are used, but stop before lines get too long on ultrawide ones */
+.page { max-width: 2400px; margin: 0 auto; padding: 22px 28px 48px; display: grid; gap: 16px; }
 .page.narrow { max-width: 880px; }
 .vtitle { margin: 0 0 6px; font: 600 22px/1.2 var(--f-display); color: var(--ink-strong); }
 .vsub { margin: 18px 0 0; font: 600 15px var(--f-display); color: var(--ink-strong); }
