@@ -78,6 +78,8 @@ RA.onRepo((r) => {
     <div id="dPrs"><div class="empty">Loading…</div></div></section>`);
   load(r.full_name);
 });
+// Back on a kept repository page: draw what arrived while another tab was showing
+RA.onRepoBack((r) => { if (P.full === r.full_name && P.page && $("dPrs")) draw(); });
 document.addEventListener("click", (e) => {
   const b = e.target.closest("[data-prall]"); if (!b) return;
   P.all[b.dataset.prall] = !P.all[b.dataset.prall]; draw();
