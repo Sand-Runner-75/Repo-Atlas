@@ -1279,7 +1279,7 @@ const COMMANDS = [
   { id: "palette", label: "Show All Commands", keys: ["Ctrl", "Shift", "P"], run: () => palette("cmd") },
   { id: "help", label: "Help: Show Help and Shortcuts", keys: ["F1"], run: () => openPage("help") },
   { id: "about", label: "Help: About Repo Atlas", run: () => { openPage("help"); $("about").scrollIntoView({ block: "start" }); } },
-  { id: "update", label: "Help: Download the New Version", when: () => !!update, run: () => openExternal(update.url) },
+  { id: "update", label: "Help: Install the New Version", when: () => !!update, run: () => installUpdate() },
   { id: "welcome", label: "Help: Show Welcome Screen", run: () => openWelcome(0) },
   { id: "tokenbox", label: "Help: Show Me the Token Box", run: () => showTokenBox() },
   { id: "link", label: "Share: Copy Link to This View", run: () => copyText(currentLink()) },
@@ -1467,13 +1467,24 @@ async function checkUpdate() {
   update = latest;
   $("sUpdate").hidden = false;
   $("sUpdate").innerHTML = `${I.download}Version ${esc(v)} is out`;
-  $("sUpdate").title = `You have ${mine}. Click to download version ${v} from GitHub.`;
+  $("sUpdate").title = `You have ${mine}. Click to install version ${v}; the app restarts by itself.`;
   if (store.get("ra.updateTold") !== v) {
     store.set("ra.updateTold", v);
-    toast("info", `Repo Atlas ${esc(v)} is out (you have ${esc(mine)}). <button type="button" class="link" data-cmd="update">Download it</button>`, 15000);
+    toast("info", `Repo Atlas ${esc(v)} is out (you have ${esc(mine)}). <button type="button" class="link" data-cmd="update">Install it</button>`, 15000);
   }
 }
 setInterval(checkUpdate, 6 * 3600e3);
+// One click downloads the signed installer and runs it quietly, so Windows never asks to uninstall the old version.
+// Your token and settings stay. Releases made before the updater existed have no update files, so their page opens instead.
+let installing = false;
+async function installUpdate() {
+  if (installing) return;
+  installing = true;
+  toast("info", "Downloading the new version. Repo Atlas will close and reopen by itself.", 15000);
+  try { if (await T.core.invoke("install_update")) return; } catch (e) { console.error(e); toast("error", "The update didn't install, so its download page is opening instead."); }
+  installing = false;
+  openExternal(update.url);
+}
 function showTokenBox() {
   openSettings();
   for (const el of [$("tokenSetting"), $("gear")]) { el.classList.remove("spot"); void el.offsetWidth; el.classList.add("spot"); setTimeout(() => el.classList.remove("spot"), 4500); }

@@ -4,6 +4,7 @@ use keyring::Entry;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_updater::UpdaterExt;
 
 const SERVICE: &str = "Repo Atlas";
 const ACCOUNT: &str = "github-token";
@@ -44,6 +45,16 @@ fn set_close_to_tray(on: bool) {
     CLOSE_TO_TRAY.store(on, Ordering::Relaxed);
 }
 
+/// Downloads the newest signed release and runs its installer quietly, which closes and reopens the app.
+/// Returns false when the release has no update files (made before the updater existed), so the page can open it instead.
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<bool, String> {
+    let update = app.updater().map_err(|e| e.to_string())?.check().await.map_err(|e| e.to_string())?;
+    let Some(update) = update else { return Ok(false) };
+    update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
@@ -62,7 +73,8 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
         ))
-        .invoke_handler(tauri::generate_handler![get_token, set_token, delete_token, set_close_to_tray])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![get_token, set_token, delete_token, set_close_to_tray, install_update])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Open Repo Atlas", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
