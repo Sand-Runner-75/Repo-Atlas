@@ -305,6 +305,8 @@ button.si:hover { background: var(--hover); }
 .contrib a { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; text-decoration: none; color: var(--ink); background: var(--surface-2); padding: 3px 9px 3px 3px; border-radius: 999px; }
 .contrib a:hover { outline: 1px solid var(--accent); }
 .contrib img { width: 20px; height: 20px; border-radius: 50%; }
+#dGraph { max-height: 560px; overflow: auto; cursor: grab; }
+#dGraph.dragging { cursor: grabbing; user-select: none; }
 #dGraph svg { width: auto; max-width: none; }
 #dGraph .gn circle { stroke: var(--surface); stroke-width: 3; }
 #dGraph .gn:hover circle { stroke: var(--ink-strong); }

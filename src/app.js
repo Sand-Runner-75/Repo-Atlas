@@ -1042,7 +1042,7 @@ function fillGraph(def, all, heads, tags, totalBranches, opt = {}) {
   const nodes = order.map((c) => {
     const l = laneOf.get(c.sha), x = X(c), y = Y(c);
     const tip = `${c.msg}\n${c.sha.slice(0, 7)} on ${l.name}${l.gone ? " (deleted)" : ""}\n${c.author ? c.author + " · " : ""}${dateStr(c.date)}`;
-    const dot = `<g class="gn" data-s="${c.x}" data-tip="${esc(tip)}"><circle cx="${x}" cy="${y}" r="${R}" fill="${l.c}"/></g>`;
+    const dot = `<g class="gn" data-s="${c.x}"${c.url ? ` data-sha="${esc(c.sha)}"` : ""} data-tip="${esc(tip)}"><circle cx="${x}" cy="${y}" r="${R}" fill="${l.c}"/></g>`;
     return c.url ? `<a href="${esc(c.url)}">${dot}</a>` : dot;
   }).join("");
   const flags = order.map((c) => {
@@ -1057,9 +1057,10 @@ function fillGraph(def, all, heads, tags, totalBranches, opt = {}) {
   const uniq = [...new Map(lanes.map((l) => [l.name + l.c, l])).values()], goneAll = uniq.filter((l) => l.gone).sort((a, b) => b.hi - a.hi);
   const keyed = uniq.filter((l) => !l.gone || goneAll.indexOf(l) < 8), hidden = goneAll.length - Math.min(8, goneAll.length);
   $("dGraphKey").innerHTML = `<table class="gkey"><tr><th></th><th>Label</th><th>Branch</th></tr>${keyed.map((l) => `<tr><td><i class="dot" style="background:${l.c}"></i></td><td class="mono">${l.pr ? `PR #${l.pr}` : l.gone ? "—" : esc(l.name.length > 24 ? l.name.slice(0, 23) + "…" : l.name)}</td><td title="${esc(l.name)}">${esc(l.name)}${l.gone ? " <span>(deleted)</span>" : ""}</td></tr>`).join("")}${hidden ? `<tr><td></td><td></td><td><span>+${hidden} older deleted branch${hidden === 1 ? "" : "es"} (hover a dot to see its branch)</span></td></tr>` : ""}</table>`
-    + (W > box.clientWidth ? `<span>Scroll sideways for older commits${opt.more ? "; reaching the left edge loads more" : ""}</span>` : "");
+    + (W > box.clientWidth ? `<span>Drag or scroll sideways for older commits${opt.more ? "; reaching the left edge loads more" : ""}</span>` : "");
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Branch graph of the last ${order.length} commits">${guides}
     <g fill="none" stroke-width="2.5" stroke-linecap="round" opacity=".85">${edges}</g>${nodes}${flags}</svg>`;
+  window.AtlasGraphZoom?.apply(box, opt.keep);
   // After loading older commits, keep the same commits in view instead of jumping back to the newest
   box.scrollLeft = opt.keep ? box.scrollWidth - fromRight : box.scrollWidth;
   box.onscroll = opt.more ? () => { if (box.scrollLeft < 120 && box.scrollWidth > box.clientWidth && !box.replaying && !G?.err) loadOlderCommits(); } : null;

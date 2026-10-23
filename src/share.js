@@ -229,7 +229,7 @@ function toggleReplay() {
   replay.timer = setInterval(() => {
     if (!svg.isConnected) return stopReplay(false);
     k++; showUpTo(svg, k);
-    const x = steps[Math.min(k, steps.length - 1)].x; box.scrollLeft = Math.max(0, x - box.clientWidth * 0.7);
+    const x = steps[Math.min(k, steps.length - 1)].x; box.scrollLeft = Math.max(0, x * (box.zoom || 1) - box.clientWidth * 0.7);
     if (k >= steps.length - 1) stopReplay(true);
   }, Math.max(60, Math.min(220, 6000 / steps.length)));
 }
@@ -237,6 +237,7 @@ function toggleReplay() {
 // x0 crops off everything left of it, so a long history still fits the GIF
 function standaloneSvg(svg, x0 = 0) {
   const clone = svg.cloneNode(true);
+  clone.removeAttribute("style");
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   if (x0 > 0) { const w = +svg.getAttribute("width") - x0, h = svg.getAttribute("height"); clone.setAttribute("viewBox", `${x0} 0 ${w} ${h}`); clone.setAttribute("width", w); }
   for (const a of clone.querySelectorAll("a")) a.replaceWith(...a.childNodes);
