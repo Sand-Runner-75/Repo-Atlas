@@ -4,7 +4,7 @@ A desktop app that maps any GitHub user's or organization's repositories: activi
 
 ## Install on Windows
 
-1. Open the [latest release](https://github.com/Sand-Runner-75/repo-atlas/releases/latest) and download `Repo Atlas_<version>_x64-setup.exe`.
+1. Open the [latest release](https://github.com/Sand-Runner-75/Repo-Atlas/releases/latest) and download `Repo Atlas_<version>_x64-setup.exe`.
 2. Double-click it. It installs for your user only, so no admin rights are needed.
 3. Windows may say *"Windows protected your PC"* because the installer isn't code-signed. Click **More info**, then **Run anyway**.
 4. Open **Repo Atlas** from the Start menu.
@@ -40,7 +40,7 @@ The app saves the token in **Windows Credential Manager** (macOS Keychain or the
 
 ## Share it
 
-- **Web version.** The same app runs in any browser at <https://sand-runner-75.github.io/repo-atlas/>, no install needed. Links open straight to what they name: `?u=torvalds` for an account, `?u=torvalds/linux` for a repository, `?u=alice&vs=bob` for a comparison. **Share: Copy Link to This View** in the command palette gives you the link for whatever is on screen.
+- **Web version.** The same app runs in any browser at <https://sand-runner-75.github.io/Repo-Atlas/>, no install needed. Links open straight to what they name: `?u=torvalds` for an account, `?u=torvalds/linux` for a repository, `?u=alice&vs=bob` for a comparison. **Share: Copy Link to This View** in the command palette gives you the link for whatever is on screen.
 - **Share picture.** **Share** on the overview draws a picture of the profile (headline numbers, languages, six months of activity and a playful title) to download, copy, or post on X or LinkedIn.
 - **History replay.** **Replay history** on a repository's branch graph plays it commit by commit; **Save as GIF** turns that into an animation.
 - **Compare.** **Compare** puts the account side by side with any other, scores eight rounds, and makes a matchup picture to share.
@@ -60,12 +60,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Sand-Runner-75/repo-atlas@main
+      - uses: Sand-Runner-75/Repo-Atlas@main
         with:
           user: your-username
 ```
 
-Then add `[![Repo Atlas](./repo-atlas.svg)](https://sand-runner-75.github.io/repo-atlas/?u=your-username)` to the README.
+Then add `[![Repo Atlas](./repo-atlas.svg)](https://sand-runner-75.github.io/Repo-Atlas/?u=your-username)` to the README.
 
 ## Thank your sponsors
 
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Sand-Runner-75/repo-atlas/sponsors@main
+      - uses: Sand-Runner-75/Repo-Atlas/sponsors@main
         with:
           user: your-username
           message: "Thank you {name} for sponsoring my open source work on GitHub! 💜"

@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Sand-Runner-75/repo-atlas/sponsors@main
+      - uses: Sand-Runner-75/Repo-Atlas/sponsors@main
         with:
           user: ${login}
           message: ${JSON.stringify(message)}

@@ -325,7 +325,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Sand-Runner-75/repo-atlas@main
+      - uses: Sand-Runner-75/Repo-Atlas@main
         with:
           user: ${login}
           theme: ${badgeTheme}`;

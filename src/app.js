@@ -261,7 +261,7 @@ function refresh() {
 
 /* ---------------- Links ---------------- */
 // The same files run as a web page on GitHub Pages; links there open straight to an account, a repository or a comparison
-const WEB_HOME = "https://sand-runner-75.github.io/repo-atlas/";
+const WEB_HOME = "https://sand-runner-75.github.io/Repo-Atlas/";
 const webBase = () => !desktop && /^https?:$/.test(location.protocol) ? location.origin + location.pathname : WEB_HOME;
 function linkFor(o = {}) {
   const p = new URLSearchParams();
@@ -1353,9 +1353,9 @@ async function renderAbout() {
   $("aboutVer").textContent = desktop ? "version " + ver : ver;
   const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
   $("aboutFacts").innerHTML = row("Version", esc(ver))
-    + row("Source code", `<a href="https://github.com/Sand-Runner-75/repo-atlas">github.com/Sand-Runner-75/repo-atlas</a>`)
-    + row("License", `<a href="https://github.com/Sand-Runner-75/repo-atlas/blob/main/LICENSE">GNU AGPL-3.0</a>`)
-    + row("Report a problem", `<a href="https://github.com/Sand-Runner-75/repo-atlas/issues">Open an issue on GitHub</a>`)
+    + row("Source code", `<a href="https://github.com/Sand-Runner-75/Repo-Atlas">github.com/Sand-Runner-75/Repo-Atlas</a>`)
+    + row("License", `<a href="https://github.com/Sand-Runner-75/Repo-Atlas/blob/main/LICENSE">GNU AGPL-3.0</a>`)
+    + row("Report a problem", `<a href="https://github.com/Sand-Runner-75/Repo-Atlas/issues">Open an issue on GitHub</a>`)
     + row("Your token is kept in", esc(secrets.where))
     + (tauri ? row("Built with", `Tauri ${esc(tauri)}`) : "");
 }
