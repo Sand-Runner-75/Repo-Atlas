@@ -101,8 +101,22 @@ const S = {
 /* ---------------- API ---------------- */
 class ApiError extends Error { constructor(status, msg, reset) { super(msg); this.status = status; this.reset = reset; } }
 let rateReset = null, rateLeft = null;
-// GET responses are kept for the session so switching tabs is instant; Refresh (F5) clears it
+// GET responses are kept for the session so switching tabs is instant; Refresh (F5) clears it.
+// The app can stay open all day, so the oldest answers are dropped once they add up to about 40 MB.
 const cache = new Map();
+const CACHE_MAX = 40e6;
+let cacheSize = 0;
+function cacheGet(key) {
+  const e = cache.get(key); if (!e) return null;
+  cache.delete(key); cache.set(key, e);
+  return e.out;
+}
+function cachePut(key, out, size) {
+  const old = cache.get(key); if (old) { cacheSize -= old.size; cache.delete(key); }
+  cache.set(key, { out, size }); cacheSize += size;
+  for (const [k, e] of cache) { if (cacheSize <= CACHE_MAX || k === key) break; cache.delete(k); cacheSize -= e.size; }
+}
+function cacheClear() { cache.clear(); cacheSize = 0; }
 function noteRate(res) {
   const rem = res.headers.get("x-ratelimit-remaining"), lim = res.headers.get("x-ratelimit-limit"), reset = res.headers.get("x-ratelimit-reset");
   if (rem == null) return;
@@ -118,7 +132,7 @@ function noteRate(res) {
 async function gh(path, opts = {}) {
   const url = path.startsWith("http") ? path : "https://api.github.com" + path;
   const method = opts.method || "GET", key = method === "GET" ? url : null;
-  if (key && !opts.fresh && cache.has(key)) return cache.get(key);
+  if (key && !opts.fresh) { const hit = cacheGet(key); if (hit) return hit; }
   const headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
   if (S.token) headers.Authorization = "Bearer " + S.token;
   const res = await fetch(url, { headers, method, body: opts.body, cache: opts.fresh ? "no-cache" : "default" });
@@ -132,7 +146,7 @@ async function gh(path, opts = {}) {
   // Some writes (re-running a workflow) answer with an empty body
   const text = await res.text();
   const out = { data: text ? JSON.parse(text) : {} };
-  if (key) cache.set(key, out);
+  if (key) cachePut(key, out, text.length);
   return out;
 }
 async function paged(path, onPage) {
@@ -142,8 +156,10 @@ async function paged(path, onPage) {
     const { data } = await gh(`${path}${sep}per_page=100&page=${p}`);
     out.push(...data);
     onPage && onPage(p, out.length);
-    if (data.length < 100) break;
+    if (data.length < 100) return out;
   }
+  // 15 full pages: there may be more than 1,500, so say so
+  out.cut = true;
   return out;
 }
 async function pool(items, n, fn) {
@@ -185,13 +201,16 @@ function toast(kind, html, ms) {
 }
 
 /* ---------------- Loading ---------------- */
-let loading = false;
-async function load(input) {
+let loading = false, waiting = null;
+// quiet: the background refresh, which shows no "Loading" text and keeps the open tab as it is
+async function load(input, quiet) {
   const parts = String(input || "").trim().replace(/^@/, "").replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/, "").split("/").filter(Boolean);
   const login = parts[0] || ""; const repoName = parts[1] || null;
-  if (!login || loading) return;
+  if (!login) return;
+  // Asked for another account while one is loading: that one comes next, and the newest ask wins
+  if (loading) { if (!quiet) { waiting = input; toast("info", `@${esc(login)} loads as soon as the current account is in.`, 3500); } return; }
   loading = true; busyCount++;
-  busy(`Loading @${esc(login)}…`);
+  if (!quiet) busy(`Loading @${esc(login)}…`);
   try {
     const { data: user } = await gh(`/users/${encodeURIComponent(login)}`);
     const me = S.me;
@@ -199,7 +218,7 @@ async function load(input) {
     if (me && me.login.toLowerCase() === user.login.toLowerCase()) path = "/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed";
     else if (user.type === "Organization") path = `/orgs/${user.login}/repos?type=all&sort=pushed`;
     else path = `/users/${user.login}/repos?type=owner&sort=pushed`;
-    const repos = (await paged(path, (p, n) => busy(`Loading @${esc(user.login)}… ${n} repositories`))).map((r) => ({ ...r }));
+    const got = await paged(path, (p, n) => quiet || busy(`Loading @${esc(user.login)}… ${n} repositories`)), repos = got.map((r) => ({ ...r }));
     for (const r of repos) r.shared = !!r.owner && r.owner.login.toLowerCase() !== user.login.toLowerCase();
     let events = [];
     // GitHub serves at most 300 public events (3 pages)
@@ -218,14 +237,20 @@ async function load(input) {
     store.set("ra.user", user.login);
     remember(user);
     notice(null);
+    S.loadedAt = Date.now();
+    if (quiet) { renderOverview(); return; }
     renderAll();
+    if (got.cut) toast("warn", `Showing the 1,500 most recently pushed repositories of @${esc(user.login)}. GitHub lists them 100 at a time, and Repo Atlas stops there to save requests.`, 10000);
     if (S.token && me && path.startsWith("/user/repos") && !repos.some((r) => r.private))
       toast("warn", "Your token works but can't see any private repositories. On GitHub, edit the token and set Repository access to All repositories, with Contents: Read-only.");
     if (repoName) await openByName(user.login, repoName);
   } catch (e) {
     console.error(e);
-    toast("error", explain(e, login));
-  } finally { loading = false; busyCount--; busy(null); }
+    if (!quiet) toast("error", explain(e, login));
+  } finally {
+    loading = false; busyCount--; busy(null);
+    if (waiting != null) { const next = waiting; waiting = null; load(next); }
+  }
 }
 async function openByName(owner, name) {
   let r = S.repos.find((x) => x.full_name.toLowerCase() === `${owner}/${name}`.toLowerCase());
@@ -253,8 +278,17 @@ function eventsToDays(events) {
   for (let t = end - 90 * DAY; t <= +end; t += DAY) { const d = new Date(t).toISOString().slice(0, 10); out.push({ date: d, count: counts[d] || 0 }); }
   return out;
 }
+// While the app stays open, the account is looked at again every 30 minutes, only when the window is in view.
+// The browser asks GitHub with the ETag it has, so an unchanged answer (304) doesn't use up the hourly limit.
+const STALE = 30 * 6e4;
+setInterval(() => {
+  if (S.sample || !S.user || loading || !S.loadedAt || Date.now() - S.loadedAt < STALE) return;
+  if (document.visibilityState !== "visible" || !$("qi").hidden || (rateLeft != null && rateLeft < 200)) return;
+  cacheClear();
+  load(S.user.login, true);
+}, 6e4);
 function refresh() {
-  cache.clear();
+  cacheClear();
   if (S.sample) { toast("info", "This is sample data. Load an account with Ctrl+O."); return; }
   load(S.user.login).then(() => { const t = activeTab(); if (t?.kind === "repo") renderRepo(t.full); });
 }
@@ -290,7 +324,7 @@ function linkRequest() {
 
 /* ---------------- Token ---------------- */
 async function useToken(t) {
-  S.token = t || ""; S.me = null; S.tokenBad = false; cache.clear();
+  S.token = t || ""; S.me = null; S.tokenBad = false; cacheClear();
   if (S.token) {
     try { S.me = (await gh("/user")).data; }
     catch (e) { if (e.status === 401) S.tokenBad = true; }
@@ -702,8 +736,16 @@ function showTab(id) {
   renderTabs();
   PAGES[t.kind]?.render();
   if (t.kind === "compare") window.AtlasCompare?.render();
-  if (t.kind === "repo") renderRepo(t.full);
-  else repoFor = null;
+  if (t.kind === "repo") {
+    // Coming back to the repository whose page is still there keeps it as it was (older commits loaded, scroll,
+    // Code tree) instead of drawing it again from the start
+    const r = pageDone === t.full && S.repos.find((x) => x.full_name === t.full);
+    if (r) {
+      repoFor = t.full;
+      for (const fn of repoBackHooks) try { fn(r); } catch (e) { console.error(e); }
+      requestAnimationFrame(() => { $("dBranches")?.redraw?.(); $("dCommits")?.redraw?.(); });
+    } else renderRepo(t.full);
+  } else repoFor = null;
   if (t.kind === "overview" && S.user) requestAnimationFrame(() => { renderYears(); renderLife(); renderScatter(); });
   renderTree();
   const who = S.user && !S.sample ? `@${S.user.login}` : "Sample data";
@@ -735,18 +777,22 @@ function closeTab(id) {
   const i = tabs.findIndex((t) => t.id === id);
   if (i < 0 || tabs[i].kind === "overview") return;
   tabs.splice(i, 1);
+  if (id === "repo:" + pageDone) pageDone = null;
   if (activeId === id) showTab(tabs[Math.min(i, tabs.length - 1)].id); else renderTabs();
 }
-function closeRepoTabs() { tabs = tabs.filter((t) => t.kind !== "repo"); if (!tabs.some((t) => t.id === activeId)) activeId = "overview"; }
+function closeRepoTabs() { pageDone = null; tabs = tabs.filter((t) => t.kind !== "repo"); if (!tabs.some((t) => t.id === activeId)) activeId = "overview"; }
 function cycleTab(d) { const i = tabs.findIndex((t) => t.id === activeId); showTab(tabs[(i + d + tabs.length) % tabs.length].id); }
 
 /* ---------------- Repository view ---------------- */
 let repoFor = null;
-// Following and Actions add their parts to the repository view through these
-const repoHooks = [];
+// The repository whose page is in the window and finished loading, so going back to its tab needn't redraw it
+let pageDone = null;
+// Following and Actions add their parts to the repository view through these; the second list runs when a tab
+// goes back to a page that is kept
+const repoHooks = [], repoBackHooks = [];
 function renderRepo(full) {
   const r = S.repos.find((x) => x.full_name === full); if (!r) { closeTab("repo:" + full); return; }
-  repoFor = full;
+  repoFor = full; pageDone = null;
   const clone = r.clone_url || `https://github.com/${r.full_name}.git`;
   $("repoPage").innerHTML = `<div class="rhead"><div style="min-width:0;flex:1 1 360px">
       <div class="crumb">${esc(r.full_name.split("/")[0])} /</div>
@@ -790,6 +836,7 @@ function renderRepo(full) {
     const bn = ["feature/dark-mode", "fix/login-timeout", "experiment/new-parser", "release/1.2", "docs-update", "refactor-api"].slice(0, 1 + Math.floor(rnd() * 6));
     fillBranches(r.default_branch, new Date(Date.now() - rnd() * 20 * DAY).toISOString(),
       bn.map((name) => ({ name, ahead: rnd() < 0.3 ? 0 : Math.round(rnd() * 30), behind: Math.round(rnd() * rnd() * 120), date: new Date(Date.now() - rnd() * 300 * DAY).toISOString(), protected: name.startsWith("release") })), bn.length);
+    pageDone = full;
     return;
   }
   loadRepoDetails(r, full);
@@ -817,33 +864,66 @@ async function loadRepoDetails(r, full) {
     })(),
   ];
   await Promise.allSettled(jobs); done();
+  if (repoFor === full) pageDone = full;
 }
 const refPath = (name) => name.split("/").map(encodeURIComponent).join("/");
+// Comparing each branch with the default branch is the costly part of a repository page. With a token it is one
+// GraphQL request for up to 100 branches. Without one it is one request per branch, out of 60 an hour, so a repository
+// with more than a few branches waits for a click.
+const BRANCH_ASK = 3;
+let branchJob = null;
 async function loadBranches(r, full) {
   const box = () => $("dBranches");
+  branchJob = null;
   try {
     const list = await paged(`/repos/${r.full_name}/branches`);
     if (repoFor !== full) return;
     if (!list.length) { box().innerHTML = $("dGraph").innerHTML = `<div class="empty">This repository has no branches yet (it's empty).</div>`; return; }
     const graph = loadGraph(r, full, list);
-    const def = r.default_branch, defB = list.find((b) => b.name === def);
-    const others = list.filter((b) => b.name !== def);
-    box().innerHTML = `<div class="empty">Comparing ${others.length} branch${others.length === 1 ? "" : "es"} with ${esc(def)}…</div>`;
-    const headDate = async (sha) => (await gh(`/repos/${r.full_name}/commits/${sha}`)).data.commit.committer.date;
-    const rows = [];
-    await pool(others.slice(0, 40), 5, async (b) => {
-      try {
-        const { data: c } = await gh(`/repos/${r.full_name}/compare/${refPath(def)}...${refPath(b.name)}`);
-        const date = c.ahead_by && c.commits?.length ? c.commits[c.commits.length - 1].commit.committer.date : await headDate(b.commit.sha);
-        rows.push({ name: b.name, ahead: c.ahead_by, behind: c.behind_by, date, protected: b.protected });
-      } catch { rows.push({ name: b.name, ahead: null, behind: null, date: null, protected: b.protected }); }
-    });
-    let defDate = null; try { if (defB) defDate = await headDate(defB.commit.sha); } catch {}
-    if (repoFor === full) fillBranches(def, defDate, rows, others.length);
+    const def = r.default_branch, others = list.filter((b) => b.name !== def);
+    const compare = async () => {
+      branchJob = null;
+      box().innerHTML = `<div class="empty">Comparing ${others.length} branch${others.length === 1 ? "" : "es"} with ${esc(def)}…</div>`;
+      let rows = S.token ? await compareGraphql(r, def, others) : null;
+      if (!rows) rows = await compareRest(r, def, others.slice(0, 40));
+      if (repoFor === full) fillBranches(def, null, rows, others.length);
+    };
+    if (!S.token && others.length > BRANCH_ASK) {
+      branchJob = compare;
+      $("dBranchSum").innerHTML = `<span><b>${others.length + 1}</b> branches</span>`;
+      box().innerHTML = `<div class="empty">Comparing ${Math.min(40, others.length)} branches with ${esc(def)} takes ${Math.min(40, others.length)} of the 60 requests GitHub allows an hour without a token.<br>
+        <button type="button" class="btn" data-cmd="compareBranches" style="margin-top:8px">Compare branches</button></div>`;
+    } else await compare();
     await graph;
   } catch (e) {
     if (repoFor === full) box().innerHTML = $("dGraph").innerHTML = `<div class="empty">Couldn't load branches. ${esc(explain(e).replace(/<[^>]+>/g, ""))}</div>`;
   }
+}
+async function compareGraphql(r, def, others) {
+  const [o, n] = r.full_name.split("/"), list = others.slice(0, 100);
+  const vars = { o, n }, decl = ["$o:String!", "$n:String!"], cmp = [];
+  list.forEach((b, i) => { vars["b" + i] = b.name; decl.push(`$b${i}:String!`); cmp.push(`c${i}:compare(headRef:$b${i}){aheadBy behindBy}`); });
+  const query = `query(${decl.join(",")}){repository(owner:$o,name:$n){refs(refPrefix:"refs/heads/",first:100,orderBy:{field:TAG_COMMIT_DATE,direction:DESC}){nodes{name target{...on Commit{committedDate}}}} defaultBranchRef{${cmp.join(" ")}}}}`;
+  try {
+    const { data } = await gh("/graphql", { method: "POST", body: JSON.stringify({ query, variables: vars }) });
+    const repo = data?.data?.repository;
+    if (!repo?.defaultBranchRef) return null;
+    const dates = new Map(repo.refs.nodes.map((x) => [x.name, x.target?.committedDate || null]));
+    // Base is the default branch, so aheadBy counts the branch's own commits, as the REST compare does
+    return list.map((b, i) => { const c = repo.defaultBranchRef["c" + i]; return { name: b.name, ahead: c ? c.aheadBy : null, behind: c ? c.behindBy : null, date: dates.get(b.name) || null, protected: b.protected }; });
+  } catch { return null; }
+}
+async function compareRest(r, def, others) {
+  const rows = [];
+  await pool(others, 5, async (b) => {
+    try {
+      const { data: c } = await gh(`/repos/${r.full_name}/compare/${refPath(def)}...${refPath(b.name)}`);
+      // A branch with nothing of its own ends where it left the default branch, so the merge base is its newest commit
+      const date = c.ahead_by && c.commits?.length ? c.commits[c.commits.length - 1].commit.committer.date : c.merge_base_commit?.commit.committer.date || null;
+      rows.push({ name: b.name, ahead: c.ahead_by, behind: c.behind_by, date, protected: b.protected });
+    } catch { rows.push({ name: b.name, ahead: null, behind: null, date: null, protected: b.protected }); }
+  });
+  return rows;
 }
 /* Git-flow graph: one lane per branch, colored by the kind of branch (lines, dots and labels alike), with merges and tags */
 const FLOW = [
@@ -863,15 +943,23 @@ const rankOf = (name, def) => RANK.indexOf(flowOf(name, def).k);
 // The graph starts with the newest commits and loads older ones a page at a time (scroll to the left edge, or the button)
 const GFIRST = 100, GMORE = 200;
 let G = null;
+// How many commits each repository's graph had loaded, so it comes back the same after its page is redrawn
+const graphShown = new Map();
 async function loadGraph(r, full, list) {
   const def = r.default_branch;
-  const pick = [...list].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def) || a.name.localeCompare(b.name)).slice(0, 15);
-  const g = G = { r, full, def, pick, total: list.length, commits: new Map(), page: new Map(), oldest: new Map(), more: new Set(pick.map((b) => b.name)), show: GFIRST, busy: false };
+  // Each branch drawn costs a request or more, so without a token (60 an hour) fewer are drawn
+  const pick = [...list].sort((a, b) => rankOf(a.name, def) - rankOf(b.name, def) || a.name.localeCompare(b.name)).slice(0, S.token ? 15 : 6);
+  const g = G = { r, full, def, pick, total: list.length, commits: new Map(), page: new Map(), oldest: new Map(), more: new Set(pick.map((b) => b.name)), show: graphShown.get(full) || GFIRST, busy: false };
   await graphFill(g);
   let tags = []; try { tags = (await gh(`/repos/${r.full_name}/tags?per_page=100`)).data; } catch {}
   // The newest pull request opened from each branch, so labels can say "PR #12" instead of a long name
   const prOf = new Map();
-  try { for (const p of (await gh(`/repos/${r.full_name}/pulls?state=all&per_page=100`)).data) if (p.head?.repo?.full_name === r.full_name && !prOf.has(p.head.ref)) prOf.set(p.head.ref, p.number); } catch {}
+  try {
+    const all = (await gh(`/repos/${r.full_name}/pulls?state=all&per_page=100`)).data;
+    // A busy repository has more than the newest 100; its open pull requests are the ones its branches most likely have
+    const open = all.length === 100 ? (await gh(`/repos/${r.full_name}/pulls?state=open&per_page=100`)).data : [];
+    for (const p of [...all, ...open]) if (p.head?.repo?.full_name === r.full_name && !prOf.has(p.head.ref)) prOf.set(p.head.ref, p.number);
+  } catch {}
   g.heads = pick.map((b) => ({ name: b.name, sha: b.commit.sha, pr: prOf.get(b.name) }));
   g.tags = tags.map((t) => ({ name: t.name, sha: t.commit.sha }));
   if (repoFor === full && G === g) drawGraph(g);
@@ -941,6 +1029,7 @@ async function loadOlderCommits() {
   if (!g || g.busy || repoFor !== g.full || !g.heads) return;
   // Steps grow with the history already shown, so reaching the start of a very long one takes a handful of loads
   g.busy = true; g.err = false; g.show += Math.min(2000, Math.max(GMORE, Math.round(g.show / 2)));
+  graphShown.set(g.full, g.show);
   const b = $("graphOlder"); if (b) { b.disabled = true; b.textContent = "Loading older commits…"; }
   try { await graphFill(g); } finally { g.busy = false; }
   if (g.err) toast("error", "Couldn't load older commits. Check your connection or GitHub rate limit, then press Load older commits.");
@@ -1178,6 +1267,7 @@ const COMMANDS = [
   { id: "github", label: "Repository: Open on GitHub", keys: ["Ctrl", "Shift", "G"], when: () => isRepo() && !S.sample, run: () => openExternal(curRepo().html_url) },
   { id: "clone", label: "Repository: Copy Clone URL", keys: ["Ctrl", "Shift", "C"], when: isRepo, run: () => { const r = curRepo(); copyText(r.clone_url || `https://github.com/${r.full_name}.git`); } },
   { id: "graphOlder", label: "Repository: Load Older Commits in Branch Graph", when: () => isRepo() && !S.sample && !!G?.heads, run: () => loadOlderCommits() },
+  { id: "compareBranches", label: "Repository: Compare Branches with the Default Branch", when: () => isRepo() && !!branchJob, run: () => branchJob() },
   { id: "keep", label: "Repository: Keep Tab Open", when: () => activeTab()?.preview, run: () => { activeTab().preview = false; renderTabs(); } },
   { id: "profile", label: "Account: Open Profile on GitHub", when: () => !S.sample, run: () => openExternal(S.user.html_url) },
   { id: "me", label: "Account: Load My Account", when: () => !!S.me, run: () => load(S.me.login) },
@@ -1189,6 +1279,7 @@ const COMMANDS = [
   { id: "palette", label: "Show All Commands", keys: ["Ctrl", "Shift", "P"], run: () => palette("cmd") },
   { id: "help", label: "Help: Show Help and Shortcuts", keys: ["F1"], run: () => openPage("help") },
   { id: "about", label: "Help: About Repo Atlas", run: () => { openPage("help"); $("about").scrollIntoView({ block: "start" }); } },
+  { id: "update", label: "Help: Download the New Version", when: () => !!update, run: () => openExternal(update.url) },
   { id: "welcome", label: "Help: Show Welcome Screen", run: () => openWelcome(0) },
   { id: "tokenbox", label: "Help: Show Me the Token Box", run: () => showTokenBox() },
   { id: "link", label: "Share: Copy Link to This View", run: () => copyText(currentLink()) },
@@ -1359,6 +1450,30 @@ async function renderAbout() {
     + row("Your token is kept in", esc(secrets.where))
     + (tauri ? row("Built with", `Tauri ${esc(tauri)}`) : "");
 }
+// The Windows app looks once a day for a newer release (one request) and offers it in the status bar
+const RELEASES = "/repos/Sand-Runner-75/Repo-Atlas/releases/latest";
+const newer = (a, b) => { const x = a.split("."), y = b.split("."); for (let i = 0; i < 3; i++) if ((+x[i] || 0) !== (+y[i] || 0)) return (+x[i] || 0) > (+y[i] || 0); return false; };
+let update = null;
+async function checkUpdate() {
+  if (!desktop) return;
+  let mine; try { mine = await T.app.getVersion(); } catch { return; }
+  let latest = store.json("ra.update", null);
+  if (!latest || Date.now() - latest.at > DAY) {
+    try { const { data } = await gh(RELEASES, { fresh: true }); latest = { tag: data.tag_name, url: data.html_url, at: Date.now() }; store.set("ra.update", JSON.stringify(latest)); }
+    catch { return; }
+  }
+  const v = String(latest.tag || "").replace(/^v/i, "");
+  if (!/^\d+\.\d+/.test(v) || !newer(v, mine)) { $("sUpdate").hidden = true; update = null; return; }
+  update = latest;
+  $("sUpdate").hidden = false;
+  $("sUpdate").innerHTML = `${I.download}Version ${esc(v)} is out`;
+  $("sUpdate").title = `You have ${mine}. Click to download version ${v} from GitHub.`;
+  if (store.get("ra.updateTold") !== v) {
+    store.set("ra.updateTold", v);
+    toast("info", `Repo Atlas ${esc(v)} is out (you have ${esc(mine)}). <button type="button" class="link" data-cmd="update">Download it</button>`, 15000);
+  }
+}
+setInterval(checkUpdate, 6 * 3600e3);
 function showTokenBox() {
   openSettings();
   for (const el of [$("tokenSetting"), $("gear")]) { el.classList.remove("spot"); void el.offsetWidth; el.classList.add("spot"); setTimeout(() => el.classList.remove("spot"), 4500); }
@@ -1384,11 +1499,11 @@ $("welcome").addEventListener("submit", (e) => {
 
 /* ---------------- Wiring ---------------- */
 function renderCharts() { renderLangs(); renderHeat(); renderRank(); renderYears(); renderLife(); renderScatter(); }
-function renderAll() {
+function renderOverview() {
   renderProfile(); renderKpis(); renderCharts(); renderComposition(); renderTopics(); renderFeed(); fillLangSelect(); renderTree(); renderAccount(); renderRecent(); renderTabs();
   renderAllNotice();
-  showTab(activeId);
 }
+function renderAll() { renderOverview(); showTab(activeId); }
 function renderAllNotice() {
   if (S.sample) notice("sample", `<b>Sample data.</b><span>These projects are invented so you can see every view.</span>
     <span class="nacts"><button type="button" class="btn primary" data-cmd="load">Load a GitHub account</button>${S.token ? "" : `<button type="button" class="btn" data-cmd="token">${I.key}Add GitHub token</button>`}</span>`);
@@ -1458,7 +1573,7 @@ window.RA = {
   S, I, gh, paged, pool, esc, fmt, kb, ago, dateStr, langColor, explain, toast, busy, copyText, openExternal, desktop,
   contributionCalendar, eventsToDays, palette, openCompare, showTab, renderTabs, linkFor, currentLink, syncUrl,
   activeTab, curRepo, isRepo, load, openRepo, openByName, openPage, openSettings, showSide, renderTree, store, onRepo: (fn) => repoHooks.push(fn),
-  repoShown: () => repoFor, addPage: (kind, page) => PAGES[kind] = page, rateLeft: () => rateLeft, addCommands(list) { COMMANDS.splice(COMMANDS.findIndex((c) => c.id === "collapse"), 0, ...list); renderKeys(); },
+  repoShown: () => repoFor, onRepoBack: (fn) => repoBackHooks.push(fn), addPage: (kind, page) => PAGES[kind] = page, rateLeft: () => rateLeft, addCommands(list) { COMMANDS.splice(COMMANDS.findIndex((c) => c.id === "collapse"), 0, ...list); renderKeys(); },
   busyStart(text) { busyCount++; busy(text); }, busyEnd() { busyCount--; busy(null); },
 };
 
@@ -1474,6 +1589,7 @@ window.RA = {
   let saved = null; try { saved = await secrets.get(); } catch (e) { console.error(e); }
   await useToken(saved || "");
   if (!store.get("ra.welcomed")) openWelcome(0);
+  setTimeout(checkUpdate, 15000);
   if (asked) {
     await load(asked.u);
     if (asked.vs && S.user && !S.sample) window.AtlasCompare?.open(asked.vs);

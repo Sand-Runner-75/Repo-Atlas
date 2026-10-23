@@ -106,6 +106,7 @@ async function releaseDialog() {
 }
 
 RA.onRepo((r) => { R.full = r.full_name; R.rels = []; loadReleases(r.full_name); if (!RA.S.sample) loadStar(r.full_name); });
+RA.onRepoBack((r) => { R.full = r.full_name; loadReleases(r.full_name); });
 RA.addCommands([
   { id: "star", label: "Repository: Star or Unstar", when: () => RA.isRepo() && !RA.S.sample && !!RA.S.token, run: toggleStar },
   { id: "newRelease", label: "Repository: New Release…", when: RA.isRepo, run: releaseDialog },

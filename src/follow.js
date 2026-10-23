@@ -331,6 +331,7 @@ function decorate() {
   b.title = on ? "Change what you're told about, or unfollow" : "Get told about new releases and more";
 }
 RA.onRepo(() => setTimeout(decorate));
+RA.onRepoBack(() => setTimeout(decorate));
 
 /* ---------------- Settings ---------------- */
 function renderSettings() {

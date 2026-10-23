@@ -195,6 +195,8 @@ function sample() {
 }
 
 RA.onRepo((r) => { A.full = r.full_name; A.runs = []; clearTimeout(A.timer); if (RA.S.sample) sample(); else load(r.full_name); });
+// Back on a kept repository page: bring the runs up to date (an unchanged list costs no requests)
+RA.onRepoBack((r) => { A.full = r.full_name; clearTimeout(A.timer); if (!RA.S.sample) load(r.full_name); });
 RA.addCommands([
   { id: "runWorkflow", label: "Actions: Run Workflow…", when: RA.isRepo, run: runDialog },
   { id: "actionsRefresh", label: "Actions: Refresh Runs", when: RA.isRepo, run: () => RA.S.sample ? sample() : load(A.full) },
