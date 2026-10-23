@@ -3069,6 +3069,7 @@ name = "repo-atlas"
 version = "0.2.4"
 dependencies = [
  "keyring",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
