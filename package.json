@@ -2,7 +2,7 @@
   "name": "repo-atlas",
   "private": true,
   "license": "AGPL-3.0-only",
-  "version": "0.2.4",
+  "version": "0.2.6",
   "description": "Desktop app that maps a GitHub user's or organization's repositories",
   "scripts": {
     "tauri": "tauri",
